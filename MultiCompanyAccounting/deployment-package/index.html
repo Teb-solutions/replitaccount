@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Company Accounting System</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            padding: 40px;
+            max-width: 600px;
+            text-align: center;
+        }
+        .logo {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+        .subtitle {
+            color: #666;
+            font-size: 1.1em;
+            margin-bottom: 30px;
+        }
+        .api-link {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-weight: 600;
+            margin: 10px;
+            transition: transform 0.2s;
+        }
+        .api-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        .features {
+            margin: 30px 0;
+            text-align: left;
+        }
+        .feature {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .status {
+            color: #28a745;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">📊 Multi-Company Accounting</div>
+        <div class="subtitle">Enterprise Financial Management System</div>
+        
+        <div class="status">✅ System Status: Operational</div>
+        
+        <div class="features">
+            <div class="feature">
+                <strong>Multi-Company Management</strong><br>
+                Manage 23+ companies with comprehensive financial tracking
+            </div>
+            <div class="feature">
+                <strong>AR/AP Tracking</strong><br>
+                Real-time accounts receivable and payable monitoring
+            </div>
+            <div class="feature">
+                <strong>Intercompany Workflows</strong><br>
+                Automated sales orders, invoices, and receipt processing
+            </div>
+            <div class="feature">
+                <strong>Financial Reporting</strong><br>
+                Balance sheets, P&L statements, and cash flow analysis
+            </div>
+        </div>
+        
+        <div>
+            <a href="/api-docs" class="api-link">📖 API Documentation</a>
+            <a href="/api/companies" class="api-link">🏢 View Companies</a>
+        </div>
+        
+        <div style="margin-top: 30px; color: #666; font-size: 0.9em;">
+            Connected to Database: 135.235.154.222<br>
+            Port: 3002 | SSL: Disabled
+        </div>
+    </div>
+
+    <script>
+        // Check if the API is accessible
+        fetch('/api/companies')
+            .then(response => {
+                if (response.ok) {
+                    document.querySelector('.status').innerHTML = '✅ System Status: Connected & Operational';
+                } else {
+                    document.querySelector('.status').innerHTML = '⚠️ System Status: API Connection Issue';
+                }
+            })
+            .catch(error => {
+                document.querySelector('.status').innerHTML = '❌ System Status: Connection Failed';
+            });
+    </script>
+</body>
+</html>

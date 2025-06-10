@@ -1,0 +1,674 @@
+import { useState, useEffect, useMemo } from "react";
+import { useLocation } from "wouter";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useCompany } from "@/hooks/use-company";
+import { useIntercompany, IntercompanyTransaction } from "@/hooks/use-intercompany";
+import { createIntercompanyInvoice } from "@/lib/intercompany-connector";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Separator } from "@/components/ui/separator";
+import { Loader2 } from "lucide-react";
+import { formatCurrency } from "@/lib/utils";
+
+const formSchema = z.object({
+  sourceCompanyId: z.number().min(1, "Source company is required"),
+  targetCompanyId: z.number().min(1, "Target company is required"),
+  salesOrderId: z.number().min(1, "Sales order is required"),
+  purchaseOrderId: z.number().min(1, "Purchase order is required"),
+  issueDate: z.string().min(1, "Issue date is required"),
+  dueDate: z.string().min(1, "Due date is required"),
+  description: z.string().min(3, "Description is required"),
+  items: z.array(z.object({
+    productId: z.number().min(1, "Product is required"),
+    quantity: z.number().min(1, "Quantity must be at least 1"),
+    unitPrice: z.number().min(0.01, "Unit price must be greater than 0"),
+    description: z.string().optional(),
+    soItemId: z.number().optional(),
+    poItemId: z.number().optional(),
+  }))
+});
+
+type FormValues = z.infer<typeof formSchema>;
+
+export default function IntercompanyInvoiceForm() {
+  const { activeCompany } = useCompany();
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const [orderId, setOrderId] = useState<number | string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  
+  // Use our intercompany hook to find related transactions
+  const { 
+    transactions: intercompanyTransactions, 
+    isLoading: isLoadingTransactions,
+    findTransactionBySalesOrderId,
+    fetchTransactionByOrderId
+  } = useIntercompany<IntercompanyTransaction[]>();
+  
+  // Get URL parameters
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const soId = params.get("soId");
+    
+    console.log("URL Parameters:", {
+      rawParams: window.location.search,
+      parsedSoId: soId
+    });
+    
+    if (soId) {
+      // Try to parse as number but keep original string if NaN
+      const parsedId = parseInt(soId, 10);
+      const finalId = isNaN(parsedId) ? soId : parsedId;
+      console.log("Setting order ID to:", finalId);
+      setOrderId(finalId);
+    } else {
+      console.warn("No soId parameter found in URL");
+    }
+  }, []);
+  
+  // Query for the sales order first if we have an orderId
+  const { data: salesOrderData, isLoading: isLoadingSalesOrderData } = useQuery({
+    queryKey: ['/api/sales-orders', orderId],
+    queryFn: async () => {
+      if (!orderId) return null;
+      const res = await apiRequest('GET', `/api/sales-orders/${orderId}`);
+      return await res.json();
+    },
+    enabled: !!orderId
+  });
+  
+  // Create intercompany transaction mutation
+  const createTransactionMutation = useMutation({
+    mutationFn: async (data: {
+      sourceCompanyId: number;
+      targetCompanyId: number;
+      description: string;
+      amount: string | number;
+      transactionDate: Date;
+      sourceOrderId: number;
+      targetOrderId?: number;
+    }) => {
+      return apiRequest(
+        'POST',
+        '/api/intercompany-transactions',
+        data
+      );
+    },
+    onSuccess: () => {
+      toast({
+        title: "Transaction created",
+        description: "Intercompany transaction was created successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/intercompany-transactions'] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create transaction",
+        variant: "destructive",
+      });
+    }
+  });
+  
+  // Find the related transaction based on the sales order ID using local and server-side helpers
+  const relatedTransaction = useMemo(() => {
+    if (!orderId) return null;
+    
+    console.log("Searching for transaction with orderId:", orderId);
+    
+    // First try the local in-memory helper function to find the transaction
+    const transaction = findTransactionBySalesOrderId(orderId);
+    
+    if (transaction) {
+      console.log("Found matching transaction in local cache:", transaction);
+      return transaction;
+    }
+    
+    // If no transaction found via direct ID match, try a more flexible approach
+    if (intercompanyTransactions && Array.isArray(intercompanyTransactions) && intercompanyTransactions.length > 0) {
+      // Log all transactions for debugging
+      intercompanyTransactions.forEach((tx, index) => {
+        console.log(`Transaction ${index}:`, {
+          id: tx.id,
+          sourceOrderId: tx.sourceOrderId,
+          targetOrderId: tx.targetOrderId,
+          sourceCompanyId: tx.sourceCompanyId,
+          targetCompanyId: tx.targetCompanyId
+        });
+      });
+      
+      // Try to find a matching transaction with flexible matching
+      const flexibleMatch = intercompanyTransactions.find((tx) => {
+        const orderIdNum = Number(orderId);
+        const sourceOrderIdNum = Number(tx.sourceOrderId);
+        const targetOrderIdNum = Number(tx.targetOrderId);
+        
+        // Try multiple ways to match the transaction
+        const isMatch = (
+          // Match by exact order IDs - numeric comparison
+          sourceOrderIdNum === orderIdNum || 
+          targetOrderIdNum === orderIdNum ||
+          // Match by string values
+          tx.sourceOrderId === String(orderId) ||
+          tx.targetOrderId === String(orderId)
+        );
+        
+        if (isMatch) {
+          console.log("Found matching transaction via flexible search:", tx);
+        }
+        
+        return isMatch;
+      });
+      
+      if (flexibleMatch) return flexibleMatch;
+    }
+    
+    // If still no match, try the server-side lookup (this will happen asynchronously)
+    if (orderId) {
+      // We can't use async/await directly in useMemo, so we'll trigger the server lookup
+      // and handle the result in a separate useEffect
+      console.log("No local match found, will try server-side lookup");
+    }
+    
+    return null;
+  }, [orderId, intercompanyTransactions, findTransactionBySalesOrderId]);
+  
+  // Effect to check server-side for transactions if not found locally
+  const [isCheckingServer, setIsCheckingServer] = useState(false);
+  const [serverTransaction, setServerTransaction] = useState<IntercompanyTransaction | null>(null);
+  
+  useEffect(() => {
+    // Only check server if we have an order ID but no transaction found locally
+    if (orderId && !relatedTransaction && !isCheckingServer && !serverTransaction) {
+      const checkServerForTransaction = async () => {
+        setIsCheckingServer(true);
+        try {
+          console.log("Checking server for transaction with order ID:", orderId);
+          
+          // First do a quick connectivity test to ensure the endpoint is working
+          try {
+            const testResponse = await apiRequest('GET', '/api/auth/me');
+            console.log("Connectivity test result:", { 
+              status: testResponse.status, 
+              ok: testResponse.ok 
+            });
+          } catch (testError) {
+            console.warn("Connectivity test failed:", testError);
+          }
+          
+          // Now try both endpoints to ensure we're using the correct one
+          let serverResult = null;
+          
+          try {
+            console.log("Trying /api/intercompany-transactions/by-order-id endpoint");
+            serverResult = await fetchTransactionByOrderId(orderId);
+          } catch (endpointError) {
+            console.error("Error with primary endpoint:", endpointError);
+            
+            // If that fails, try the fallback endpoint directly
+            try {
+              console.log("Trying fallback with direct API request to /api/intercompany-transactions");
+              // This is a fallback method that will search through all transactions
+              const allTransactionsResponse = await apiRequest('GET', `/api/intercompany-transactions`);
+              const allTransactions = await allTransactionsResponse.json();
+              
+              // Do the filtering manually
+              if (allTransactionsResponse.ok && Array.isArray(allTransactions)) {
+                console.log(`Got ${allTransactions.length} transactions, searching for orderId ${orderId}`);
+                
+                // Find any transaction that matches the order ID
+                const orderIdStr = String(orderId);
+                const orderIdNum = Number(orderId);
+                
+                const matchingTransaction = allTransactions.find(tx => {
+                  if (!tx) return false;
+                  
+                  const sourceId = tx.sourceOrderId;
+                  const targetId = tx.targetOrderId;
+                  
+                  const sourceIdNum = sourceId ? Number(sourceId) : NaN;
+                  const targetIdNum = targetId ? Number(targetId) : NaN;
+                  
+                  return sourceIdNum === orderIdNum || 
+                         targetIdNum === orderIdNum ||
+                         String(sourceId) === orderIdStr ||
+                         String(targetId) === orderIdStr;
+                });
+                
+                if (matchingTransaction) {
+                  console.log("Found matching transaction via manual search:", matchingTransaction);
+                  serverResult = matchingTransaction;
+                }
+              }
+              
+              // If still no match, try the original fallback endpoint
+              if (!serverResult) {
+                console.log("Trying original endpoint as last resort");
+                const fallbackResponse = await apiRequest('GET', `/api/intercompany-transactions/by-order/${orderId}`);
+                if (fallbackResponse.ok) {
+                  const transactions = await fallbackResponse.json();
+                  if (transactions && Array.isArray(transactions) && transactions.length > 0) {
+                    serverResult = transactions[0];
+                  }
+                }
+              }
+            } catch (fallbackError) {
+              console.error("Fallback endpoint also failed:", fallbackError);
+            }
+          }
+          
+          if (serverResult) {
+            console.log("Server found matching transaction:", serverResult);
+            setServerTransaction(serverResult);
+            
+            // Refresh local transactions to include this match
+            queryClient.invalidateQueries({ queryKey: ['/api/intercompany-transactions'] });
+          } else {
+            console.log("Server found no matching transaction");
+          }
+        } catch (error) {
+          console.error("Error checking server for transaction:", error);
+        } finally {
+          setIsCheckingServer(false);
+        }
+      };
+      
+      checkServerForTransaction();
+    }
+  }, [orderId, relatedTransaction, isCheckingServer, serverTransaction, fetchTransactionByOrderId]);
+  
+  // Combine local and server results
+  const finalTransaction = relatedTransaction || serverTransaction;
+  
+  // If no transaction exists but we have a sales order, create one
+  useEffect(() => {
+    if (salesOrderData && !finalTransaction && !isLoadingTransactions && !createTransactionMutation.isPending && activeCompany) {
+      console.log("Sales order found but no transaction exists. Creating transaction...", salesOrderData);
+      
+      // Find a related company to be the target and create a transaction
+      const createIntercompanyTransaction = async () => {
+        try {
+          // Get all companies in the same tenant
+          const response = await apiRequest('GET', '/api/companies');
+          const companies = await response.json();
+          
+          // Filter out the current company
+          const availableTargets = companies.filter((c: any) => c.id !== activeCompany.id);
+          
+          if (availableTargets.length > 0) {
+            // Get the first available company as target
+            const targetCompany = availableTargets[0];
+            console.log("Selected target company:", targetCompany.name);
+            
+            // Search for related purchase order (target company's order)
+            let targetOrderId = null;
+            
+            try {
+              // Check if purchase order already exists for this sales order
+              const poResponse = await apiRequest('GET', `/api/purchase-orders/by-reference/${salesOrderData.orderNumber}`);
+              const relatedPurchaseOrder = await poResponse.json();
+              
+              if (relatedPurchaseOrder && relatedPurchaseOrder.id) {
+                console.log("Found related purchase order:", relatedPurchaseOrder);
+                targetOrderId = relatedPurchaseOrder.id;
+              }
+            } catch (error) {
+              console.log("No related purchase order found, will create a transaction without it");
+            }
+            
+            const total = salesOrderData.items?.reduce((sum: number, item: any) => {
+              return sum + (Number(item.quantity) * Number(item.unitPrice));
+            }, 0) || 0;
+            
+            // Create transaction with both order references if available
+            const transactionData = {
+              sourceCompanyId: activeCompany.id,
+              targetCompanyId: targetCompany.id,
+              description: `Transaction for Sales Order #${salesOrderData.orderNumber}`,
+              amount: total.toString(),
+              transactionDate: new Date(salesOrderData.orderDate),
+              sourceOrderId: salesOrderData.id,
+              targetOrderId: targetOrderId
+            };
+            
+            console.log("Creating intercompany transaction with data:", transactionData);
+            
+            // Create transaction
+            createTransactionMutation.mutate(transactionData);
+          } else {
+            console.error("No target companies available for intercompany transaction");
+          }
+        } catch (error) {
+          console.error("Error creating intercompany transaction:", error);
+        }
+      };
+      
+      createIntercompanyTransaction();
+    }
+  }, [salesOrderData, finalTransaction, isLoadingTransactions, createTransactionMutation, activeCompany]);
+    
+  // Debug logging - reduce excessive logging to improve performance
+  console.log("Order ID from URL:", orderId);
+  console.log("Found related transaction:", finalTransaction);
+  console.log("Server-side transaction:", serverTransaction);
+  
+  // Determine source and target companies
+  const isSourceCompany = finalTransaction?.sourceCompanyId === activeCompany?.id;
+  const sourceCompanyId = finalTransaction?.sourceCompanyId;
+  const targetCompanyId = finalTransaction?.targetCompanyId;
+  const salesOrderId = finalTransaction?.sourceOrderId;
+  const purchaseOrderId = finalTransaction?.targetOrderId;
+  
+  // Query for sales order details
+  const { data: salesOrder, isLoading: isLoadingSalesOrderDetails } = useQuery({
+    queryKey: ["/api/sales-orders", salesOrderId],
+    queryFn: async () => {
+      if (!salesOrderId) return null;
+      const res = await apiRequest("GET", `/api/sales-orders/${salesOrderId}`);
+      return await res.json();
+    },
+    enabled: !!salesOrderId
+  });
+  
+  // Query for purchase order details
+  const { data: purchaseOrder, isLoading: isLoadingPurchaseOrder } = useQuery({
+    queryKey: ["/api/purchase-orders", purchaseOrderId],
+    queryFn: async () => {
+      if (!purchaseOrderId) return null;
+      const res = await apiRequest("GET", `/api/purchase-orders/${purchaseOrderId}`);
+      return await res.json();
+    },
+    enabled: !!purchaseOrderId
+  });
+  
+  const items = salesOrder?.items || [];
+  
+  // Initialize the form with default values
+  const form = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      sourceCompanyId: sourceCompanyId || 0,
+      targetCompanyId: targetCompanyId || 0,
+      salesOrderId: salesOrderId || 0,
+      purchaseOrderId: purchaseOrderId || 0,
+      issueDate: new Date().toISOString().split('T')[0],
+      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      description: salesOrder?.description || '',
+      items: []
+    }
+  });
+  
+  // Update form values when data is loaded
+  useEffect(() => {
+    if (salesOrder && purchaseOrder) {
+      form.reset({
+        sourceCompanyId: sourceCompanyId || 0,
+        targetCompanyId: targetCompanyId || 0,
+        salesOrderId: salesOrderId || 0,
+        purchaseOrderId: purchaseOrderId || 0,
+        issueDate: new Date().toISOString().split('T')[0],
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        description: salesOrder?.description || '',
+        items: salesOrder?.items?.map((item: any, index: number) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          description: item.description || '',
+          soItemId: item.id,
+          poItemId: purchaseOrder?.items?.[index]?.id
+        })) || []
+      });
+    }
+  }, [salesOrder, purchaseOrder, form, sourceCompanyId, targetCompanyId, salesOrderId, purchaseOrderId]);
+  
+  const onSubmit = async (data: FormValues) => {
+    setIsCreating(true);
+    
+    try {
+      const result = await createIntercompanyInvoice({
+        ...data,
+        sourceCompanyId: Number(data.sourceCompanyId),
+        targetCompanyId: Number(data.targetCompanyId),
+        salesOrderId: Number(data.salesOrderId),
+        purchaseOrderId: Number(data.purchaseOrderId)
+      });
+      
+      if (!result.success) {
+        throw new Error(result.error || "Failed to create intercompany invoice");
+      }
+      
+      // Invalidate queries to refresh the related data
+      queryClient.invalidateQueries({ queryKey: ["/api/intercompany-transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sales-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/journal-entries"] });
+      
+      toast({
+        title: "Success",
+        description: "Intercompany invoice and bill created successfully",
+      });
+      
+      navigate("/intercompany-transactions");
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "An error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreating(false);
+    }
+  };
+  
+  const isLoading = isLoadingTransactions || isLoadingSalesOrderData || isLoadingSalesOrderDetails || isLoadingPurchaseOrder;
+  
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Loading order details...</span>
+      </div>
+    );
+  }
+  
+  if (!finalTransaction) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Intercompany Invoice Creation</CardTitle>
+          <CardDescription>No matching intercompany transaction found</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p>The specified order ID could not be found in intercompany transactions.</p>
+          {isCheckingServer && (
+            <div className="flex items-center mt-4">
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              <p>Checking server for transaction data...</p>
+            </div>
+          )}
+        </CardContent>
+        <CardFooter>
+          <Button variant="outline" onClick={() => navigate("/intercompany-transactions")}>
+            Go Back
+          </Button>
+        </CardFooter>
+      </Card>
+    );
+  }
+  
+  return (
+    <div className="container mx-auto py-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Create Intercompany Invoice</h1>
+        <Button variant="outline" onClick={() => navigate("/intercompany-transactions")}>
+          Cancel
+        </Button>
+      </div>
+      
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Transaction Details</CardTitle>
+          <CardDescription>
+            {isSourceCompany 
+              ? "You are creating an invoice as the supplier company" 
+              : "You are creating an invoice on behalf of the supplier company"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <h3 className="font-semibold mb-2">Source (Supplier)</h3>
+              <p>Company: {finalTransaction?.sourceCompany?.name}</p>
+              <p>Order: {salesOrder?.orderNumber}</p>
+            </div>
+            <div>
+              <h3 className="font-semibold mb-2">Target (Customer)</h3>
+              <p>Company: {finalTransaction?.targetCompany?.name}</p>
+              <p>Order: {purchaseOrder?.orderNumber}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)}>
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle>Invoice Information</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-6">
+                <FormField
+                  control={form.control}
+                  name="issueDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Issue Date</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={form.control}
+                  name="dueDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Due Date</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea 
+                        placeholder="Enter invoice description"
+                        className="resize-none"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </CardContent>
+          </Card>
+          
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle>Line Items</CardTitle>
+              <CardDescription>These items are imported from the sales order</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid grid-cols-12 gap-4 font-semibold py-2 px-2 bg-gray-50 rounded-lg">
+                  <div className="col-span-6">Product</div>
+                  <div className="col-span-2 text-right">Quantity</div>
+                  <div className="col-span-2 text-right">Unit Price</div>
+                  <div className="col-span-2 text-right">Total</div>
+                </div>
+                
+                {form.watch('items').map((item, index) => (
+                  <div key={index} className="grid grid-cols-12 gap-4 py-3 px-2 border-b">
+                    <div className="col-span-6">
+                      {salesOrder?.items?.[index]?.productName || 'Unknown Product'}
+                      <p className="text-sm text-gray-500 mt-1">{item.description}</p>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      {item.quantity}
+                    </div>
+                    <div className="col-span-2 text-right">
+                      {formatCurrency(item.unitPrice, 'USD')}
+                    </div>
+                    <div className="col-span-2 text-right">
+                      {formatCurrency(item.quantity * item.unitPrice, 'USD')}
+                    </div>
+                  </div>
+                ))}
+                
+                <div className="grid grid-cols-12 gap-4 py-3 px-2 font-semibold">
+                  <div className="col-span-10 text-right">Total:</div>
+                  <div className="col-span-2 text-right">
+                    {formatCurrency(
+                      form.watch('items').reduce(
+                        (sum, item) => sum + (item.quantity * item.unitPrice), 
+                        0
+                      ), 
+                      'USD'
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <div className="flex justify-end gap-4">
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={() => navigate("/intercompany-transactions")}
+            >
+              Cancel
+            </Button>
+            <Button 
+              type="submit" 
+              disabled={isCreating}
+            >
+              {isCreating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating...
+                </>
+              ) : 'Create Invoice & Bill'}
+            </Button>
+          </div>
+        </form>
+      </Form>
+    </div>
+  );
+}

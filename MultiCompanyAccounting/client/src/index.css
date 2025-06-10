@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 98%;
+    --foreground: 240 10% 3.9%;
+    
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
+    
+    --secondary: 160 84% 39%;
+    --secondary-foreground: 210 40% 98%;
+    
+    --accent: 270 76% 64%;
+    --accent-foreground: 210 40% 98%;
+    
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 142 71% 45%;
+    
+    --radius: 0.5rem;
+
+    --chart-1: 221 83% 53%;
+    --chart-2: 0 84.2% 60.2%;
+    --chart-3: 160 84% 39%;
+    --chart-4: 270 76% 64%;
+    --chart-5: 47 95% 57%;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 240 10% 3.9%;
+    --sidebar-primary: 221 83% 53%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 221 83% 53%;
+    --sidebar-border: 240 5.9% 90%;
+    --sidebar-ring: 142 71% 45%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .sidebar-item {
+    @apply px-4 py-2 flex items-center text-sm font-medium cursor-pointer;
+  }
+  
+  .sidebar-item.active {
+    @apply bg-primary-50 text-primary-600 border-l-4 border-primary-500;
+  }
+
+  .sidebar-item:not(.active) {
+    @apply text-gray-700 hover:bg-gray-100;
+  }
+
+  .sidebar-icon {
+    @apply mr-3 text-lg;
+  }
+
+  .stats-card {
+    @apply bg-white rounded-lg shadow-sm p-5;
+  }
+
+  .tree-view ul {
+    @apply ml-6 mt-1;
+  }
+  
+  .chevron-rotate {
+    @apply transition-transform duration-200 ease-in-out;
+  }
+  
+  .chevron-rotate.open {
+    @apply rotate-90;
+  }
+}

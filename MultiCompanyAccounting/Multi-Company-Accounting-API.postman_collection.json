@@ -1,0 +1,548 @@
+{
+  "info": {
+    "name": "Multi-Company Accounting API",
+    "description": "Complete API collection for multi-company accounting system with external database integration",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://multitenantapistaging.tebs.co.in",
+      "description": "Production API server with 23 authentic companies"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/auth/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Companies",
+      "item": [
+        {
+          "name": "Get All Companies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/companies"
+          }
+        },
+        {
+          "name": "Create Company",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Company LLC\",\n  \"code\": \"NEWCO\",\n  \"company_type\": \"distributor\",\n  \"address\": \"123 Business St\",\n  \"phone\": \"555-1234\",\n  \"email\": \"contact@newcompany.com\",\n  \"tax_id\": \"12345-6789\",\n  \"industry\": \"Technology\",\n  \"base_currency\": \"USD\"\n}"
+            },
+            "url": "{{baseUrl}}/api/companies"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sales Orders",
+      "item": [
+        {
+          "name": "Get Sales Orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sales-orders?companyId=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sales-orders"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "7",
+                  "description": "Company 7 has 84 sales orders worth $537,900"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Sales Order Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sales-orders/summary?companyId=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sales-orders", "summary"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "7"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Purchase Orders",
+      "item": [
+        {
+          "name": "Get Purchase Orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/purchase-orders?companyId=8",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "purchase-orders"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "8",
+                  "description": "Company 8 has purchase orders worth $153,000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Purchase Order Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/purchase-orders/summary?companyId=8",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "purchase-orders", "summary"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "8"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "item": [
+        {
+          "name": "Get Invoice Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/invoices/summary?companyId=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "invoices", "summary"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "7",
+                  "description": "Company 7 has 67 invoices worth $442,600"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bills",
+      "item": [
+        {
+          "name": "Get Bill Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/bills/summary?companyId=8",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bills", "summary"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "8",
+                  "description": "Company 8 has 28 bills worth $229,600"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Receipts",
+      "item": [
+        {
+          "name": "Get Receipt Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/receipts/summary?companyId=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "receipts", "summary"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "7"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Get Payment Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/summary?companyId=8",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments", "summary"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "8"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Chart of Accounts",
+      "item": [
+        {
+          "name": "Get Chart of Accounts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/accounts?companyId=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "accounts"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "7"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Chart of Accounts",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyId\": 7,\n  \"accountType\": \"Asset\",\n  \"accountName\": \"Cash\",\n  \"accountCode\": \"1000\",\n  \"description\": \"Cash account for operations\"\n}"
+            },
+            "url": "{{baseUrl}}/api/accounts"
+          }
+        }
+      ]
+    },
+    {
+      "name": "AR/AP Reports",
+      "item": [
+        {
+          "name": "Get AR Tracking",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/ar-tracking?companyId=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reports", "ar-tracking"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "7"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get AP Tracking",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/ap-tracking?companyId=8",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reports", "ap-tracking"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "8"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Intercompany Operations",
+      "item": [
+        {
+          "name": "Get Intercompany Balances",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/intercompany-balances?companyId=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "intercompany-balances"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "7"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Intercompany Sales Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceCompanyId\": 7,\n  \"targetCompanyId\": 8,\n  \"products\": [\n    {\n      \"name\": \"Natural Gas Supply\",\n      \"quantity\": 100,\n      \"price\": 50\n    }\n  ],\n  \"total\": 5000\n}"
+            },
+            "url": "{{baseUrl}}/api/intercompany/sales-order"
+          },
+          "response": [
+            {
+              "name": "Expected Success Response",
+              "body": "{\n  \"success\": true,\n  \"message\": \"Intercompany sales order created successfully\",\n  \"salesOrder\": {\n    \"id\": 135,\n    \"orderNumber\": \"SO-7-1748870123456\",\n    \"total\": 5000,\n    \"status\": \"Pending\",\n    \"referenceNumber\": \"IC-REF-7-8-1748870123456\",\n    \"sourceCompany\": \"Gas Manufacturing Company\",\n    \"targetCompany\": \"Gas Distributor Company\"\n  },\n  \"purchaseOrder\": {\n    \"id\": 30,\n    \"orderNumber\": \"PO-8-1748870123456\",\n    \"total\": 5000,\n    \"status\": \"Pending\",\n    \"referenceNumber\": \"PO-REF-8-1748870123456\"\n  }\n}",
+              "status": "Created",
+              "code": 201
+            }
+          ]
+        },
+        {
+          "name": "Create Intercompany Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceCompanyId\": 7,\n  \"targetCompanyId\": 8,\n  \"salesOrderId\": 133,\n  \"total\": 1000\n}"
+            },
+            "url": "{{baseUrl}}/api/intercompany/invoice"
+          }
+        },
+        {
+          "name": "Create Intercompany Purchase Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceCompanyId\": 8,\n  \"targetCompanyId\": 7,\n  \"products\": [\n    {\n      \"name\": \"Service B\",\n      \"quantity\": 5,\n      \"price\": 200\n    }\n  ],\n  \"total\": 1000\n}"
+            },
+            "url": "{{baseUrl}}/api/intercompany/purchase-order"
+          }
+        },
+        {
+          "name": "Process Intercompany Workflow",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceCompanyId\": 7,\n  \"targetCompanyId\": 8,\n  \"products\": [\n    {\n      \"name\": \"Complete Workflow Test\",\n      \"quantity\": 1,\n      \"price\": 500\n    }\n  ],\n  \"total\": 500\n}"
+            },
+            "url": "{{baseUrl}}/api/intercompany/workflow"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Get Dashboard Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/dashboard/stats"
+          }
+        },
+        {
+          "name": "Get Recent Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/dashboard/recent-transactions"
+          }
+        },
+        {
+          "name": "Get Pending Actions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/dashboard/pending-actions"
+          }
+        },
+        {
+          "name": "Get P&L Monthly",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/dashboard/pl-monthly"
+          }
+        },
+        {
+          "name": "Get Cash Flow",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/dashboard/cash-flow"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "item": [
+        {
+          "name": "Get Balance Sheet Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/balance-sheet/summary?companyId=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reports", "balance-sheet", "summary"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "7"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Comprehensive AR Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/comprehensive/ar-summary?companyId=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "comprehensive", "ar-summary"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "7"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Comprehensive AP Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/comprehensive/ap-summary?companyId=8",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "comprehensive", "ap-summary"],
+              "query": [
+                {
+                  "key": "companyId",
+                  "value": "8"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Transaction Lookup",
+      "item": [
+        {
+          "name": "Lookup Transaction by Reference",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/reference/SO-7-1748501505",
+            "description": "Lookup transaction by reference number"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health"
+          }
+        }
+      ]
+    }
+  ]
+}
