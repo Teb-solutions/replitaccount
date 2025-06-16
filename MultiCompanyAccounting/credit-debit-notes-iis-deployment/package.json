@@ -1,0 +1,22 @@
+{
+  "name": "credit-debit-notes-system",
+  "version": "1.0.0",
+  "description": "Credit and Debit Notes System for Multi-Company Accounting",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/test-credit-debit-system.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "pg": "^8.11.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["accounting", "credit-notes", "debit-notes", "multi-company", "iis"],
+  "author": "TEBS Corporation",
+  "license": "MIT"
+}

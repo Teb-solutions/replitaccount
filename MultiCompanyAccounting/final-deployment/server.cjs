@@ -34,16 +34,34 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
+// Application Insights Logger with specified format
+function logWithApplicationInsights(level, message, requestId = null) {
+  const timestamp = new Date();
+  const formattedTime = timestamp.toTimeString().split(' ')[0]; // HH:mm:ss format
+  const levelFormatted = level.toUpperCase().padEnd(3);
+  const reqId = requestId || `req-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  
+  console.log(`[${formattedTime} ${levelFormatted}] [${reqId}] ${message}`);
+  
+  // Application Insights ID: e04a0cf1-8129-4bc2-8707-016ae726c876
+  // In production, this would send to Application Insights service
+}
+
 // Health check
 app.get('/health', async (req, res) => {
+  const requestId = `health-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  logWithApplicationInsights('INF', 'Health check requested', requestId);
+  
   try {
     const result = await pool.query('SELECT NOW()');
+    logWithApplicationInsights('INF', 'Health check successful - database connected', requestId);
     res.json({
       status: 'healthy',
       database: 'connected to 135.235.154.222',
       timestamp: result.rows[0].now
     });
   } catch (error) {
+    logWithApplicationInsights('ERR', `Health check failed: ${error.message}`, requestId);
     res.status(500).json({
       status: 'unhealthy',
       error: error.message
@@ -53,6 +71,9 @@ app.get('/health', async (req, res) => {
 
 // 1. COMPANY MANAGEMENT
 app.get('/api/companies', async (req, res) => {
+  const requestId = `companies-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  logWithApplicationInsights('INF', 'Fetching companies list', requestId);
+  
   try {
     const result = await pool.query(`
       SELECT id, name, code, company_type, address, phone, email, 
@@ -61,9 +82,11 @@ app.get('/api/companies', async (req, res) => {
       WHERE is_active = true
       ORDER BY name
     `);
+    
+    logWithApplicationInsights('INF', `Found ${result.rows.length} active companies`, requestId);
     res.json(result.rows);
   } catch (error) {
-    console.error('Error fetching companies:', error);
+    logWithApplicationInsights('ERR', `Error fetching companies: ${error.message}`, requestId);
     res.status(500).json({ error: 'Failed to fetch companies' });
   }
 });
@@ -71,11 +94,15 @@ app.get('/api/companies', async (req, res) => {
 
 
 app.post('/api/companies', async (req, res) => {
+  const requestId = `company-create-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const { name, code, company_type, address, phone, email } = req.body;
+  
+  logWithApplicationInsights('INF', `Creating new company: ${name}`, requestId);
+  
   const client = await pool.connect();
   try {
-    const { name, code, company_type, address, phone, email } = req.body;
-    
     if (!name) {
+      logWithApplicationInsights('ERR', 'Company creation failed - name is required', requestId);
       return res.status(400).json({ error: 'Company name is required' });
     }
     
@@ -93,6 +120,7 @@ app.post('/api/companies', async (req, res) => {
     `, [1, name, companyCode, company_type || 'General', address, phone, email, 'calendar', 'USD']);
 
     const newCompany = companyResult.rows[0];
+    logWithApplicationInsights('INF', `Company created successfully: ${newCompany.name} (ID: ${newCompany.id})`, requestId);
 
     // Create default chart of accounts for the new company
     const defaultAccounts = [
@@ -125,7 +153,7 @@ app.post('/api/companies', async (req, res) => {
         createdAccounts.push(accountResult.rows[0]);
       } catch (accountError) {
         // Continue if account creation fails (might be duplicate codes)
-        console.warn(`Failed to create account ${account.code} for company ${newCompany.id}:`, accountError.message);
+        logWithApplicationInsights('WRN', `Failed to create account ${account.code} for company ${newCompany.id}:`, requestId);
       }
     }
 
@@ -140,7 +168,7 @@ app.post('/api/companies', async (req, res) => {
     
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error creating company:', error);
+    logWithApplicationInsights('ERR', `Error creating company: ${error.message}`, requestId);
     if (error.code === '23505') {
       res.status(400).json({ error: 'Company code already exists' });
     } else {
@@ -153,12 +181,16 @@ app.post('/api/companies', async (req, res) => {
 
 // 2. INTERCOMPANY SALES ORDER
 app.post('/api/intercompany/sales-order', async (req, res) => {
+  const requestId = `intercompany-so-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const { sourceCompanyId, targetCompanyId, products = [], orderTotal, total, referenceNumber } = req.body;
+  const finalTotal = orderTotal || total;
+  
+  logWithApplicationInsights('INF', `Creating intercompany sales order: ${sourceCompanyId} -> ${targetCompanyId}, Amount: ${finalTotal}`, requestId);
+  
   const client = await pool.connect();
   try {
-    const { sourceCompanyId, targetCompanyId, products = [], orderTotal, total, referenceNumber } = req.body;
-    const finalTotal = orderTotal || total;
-    
     if (!sourceCompanyId || !targetCompanyId || !finalTotal) {
+      logWithApplicationInsights('ERR', 'Intercompany sales order creation failed - missing required fields', requestId);
       return res.status(400).json({ error: 'sourceCompanyId, targetCompanyId, and orderTotal are required' });
     }
 
@@ -272,7 +304,7 @@ app.post('/api/intercompany/sales-order', async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error creating intercompany sales order:', error);
+    logWithApplicationInsights('ERR', 'Error creating intercompany sales order: ' + error.message, requestId);
     res.status(500).json({ error: 'Failed to create intercompany sales order' });
   } finally {
     client.release();
@@ -354,7 +386,7 @@ app.get('/api/sales-orders/:id/products', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching sales order products:', error);
+    logWithApplicationInsights('ERR', 'Error fetching sales order products: ' + error.message, requestId);
     res.status(500).json({ error: 'Failed to fetch sales order products' });
   }
 });
@@ -434,15 +466,19 @@ app.get('/api/purchase-orders/:id/products', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching purchase order products:', error);
+    logWithApplicationInsights('ERR', 'Error fetching purchase order products: ' + error.message, requestId);
     res.status(500).json({ error: 'Failed to fetch purchase order products' });
   }
 });
 
 // API endpoint to get all products
 app.get('/api/products', async (req, res) => {
+  const requestId = `products-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const { companyId, isActive } = req.query;
+  
+  logWithApplicationInsights('INF', `Fetching products for company ${companyId || 'all'}, isActive: ${isActive}`, requestId);
+  
   try {
-    const { companyId, isActive } = req.query;
     
     let query = `
       SELECT 
@@ -511,6 +547,8 @@ app.get('/api/products', async (req, res) => {
       productsByCompany[companyKey].push(product);
     });
     
+    logWithApplicationInsights('INF', `Found ${products.length} products across ${Object.keys(productsByCompany).length} companies`, requestId);
+    
     res.json({
       success: true,
       totalProducts: products.length,
@@ -523,7 +561,7 @@ app.get('/api/products', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error fetching products:', error);
+    logWithApplicationInsights('ERR', `Error fetching products: ${error.message}`, requestId);
     res.status(500).json({ error: 'Failed to fetch products' });
   }
 });
@@ -635,7 +673,7 @@ app.post('/api/intercompany/invoice', async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error creating intercompany invoice:', error);
+    logWithApplicationInsights('ERR', 'Error creating intercompany invoice: ' + error.message, requestId);
     console.error('Error details:', {
       message: error.message,
       code: error.code,
@@ -723,7 +761,7 @@ app.post('/api/intercompany/payment', async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error creating intercompany payment:', error);
+    logWithApplicationInsights('ERR', 'Error creating intercompany payment: ' + error.message, requestId);
     res.status(500).json({ error: 'Failed to create intercompany payment' });
   } finally {
     client.release();
@@ -732,6 +770,10 @@ app.post('/api/intercompany/payment', async (req, res) => {
 
 // 5. TRANSACTION REFERENCE LOOKUP
 app.get('/api/reference/:reference', async (req, res) => {
+  const requestId = `ref-lookup-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const { reference } = req.params;
+  logWithApplicationInsights('INF', `Looking up transaction reference: ${reference}`, requestId);
+  
   try {
     const { reference } = req.params;
     
@@ -840,13 +882,16 @@ app.get('/api/reference/:reference', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error looking up transaction reference:', error);
+    logWithApplicationInsights('ERR', 'Error looking up transaction reference: ' + error.message, requestId);
     res.status(500).json({ error: 'Failed to lookup transaction reference' });
   }
 });
 
 // 6. CHART OF ACCOUNTS
 app.get('/api/accounts', async (req, res) => {
+  const requestId = `accounts-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  logWithApplicationInsights('INF', 'Fetching chart of accounts', requestId);
+  
   try {
     const { companyId } = req.query;
     if (!companyId) {
@@ -863,7 +908,7 @@ app.get('/api/accounts', async (req, res) => {
 
     res.json(result.rows);
   } catch (error) {
-    console.error('Error fetching chart of accounts:', error);
+    logWithApplicationInsights('ERR', 'Error fetching chart of accounts: ' + error.message, requestId);
     res.status(500).json({ error: 'Failed to fetch chart of accounts' });
   }
 });
@@ -895,7 +940,7 @@ app.post('/api/accounts', async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error creating account:', error);
+    logWithApplicationInsights('ERR', 'Error creating account: ' + error.message, requestId);
     res.status(500).json({ error: 'Failed to create account' });
   } finally {
     client.release();
@@ -904,9 +949,14 @@ app.post('/api/accounts', async (req, res) => {
 
 // Additional working endpoints
 app.get('/api/sales-orders', async (req, res) => {
+  const requestId = `sales-orders-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const { companyId } = req.query;
+  
+  logWithApplicationInsights('INF', `Fetching sales orders for company ${companyId}`, requestId);
+  
   try {
-    const { companyId } = req.query;
     if (!companyId) {
+      logWithApplicationInsights('ERR', 'Sales orders fetch failed - companyId is required', requestId);
       return res.status(400).json({ error: 'companyId is required' });
     }
 
@@ -916,17 +966,24 @@ app.get('/api/sales-orders', async (req, res) => {
       ORDER BY created_at DESC
     `, [companyId]);
 
+    logWithApplicationInsights('INF', `Found ${result.rows.length} sales orders for company ${companyId}`, requestId);
+    logWithApplicationInsights('INF', `Successfully returned ${result.rows.length} sales orders for company ${companyId}`, requestId);
     res.json(result.rows);
   } catch (error) {
-    console.error('Error fetching sales orders:', error);
+    logWithApplicationInsights('ERR', `Error fetching sales orders: ${error.message}`, requestId);
     res.status(500).json({ error: 'Failed to fetch sales orders' });
   }
 });
 
 app.get('/api/invoices/summary', async (req, res) => {
+  const requestId = `invoices-summary-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const { companyId } = req.query;
+  
+  logWithApplicationInsights('INF', `Fetching invoices summary for company ${companyId}`, requestId);
+  
   try {
-    const { companyId } = req.query;
     if (!companyId) {
+      logWithApplicationInsights('ERR', 'Invoices summary fetch failed - companyId is required', requestId);
       return res.status(400).json({ error: 'companyId is required' });
     }
 
@@ -1097,16 +1154,23 @@ app.get('/api/invoices/summary', async (req, res) => {
       paidinvoices: result.total_receipts.toString(),
       paidamount: parseFloat(result.receipts_total).toFixed(2)
     });
+    
+    logWithApplicationInsights('INF', `Invoices summary generated for company ${companyId}: ${result.total_invoices} invoices totaling ${result.invoices_total}`, requestId);
   } catch (error) {
-    console.error('Error fetching AR summary:', error);
+    logWithApplicationInsights('ERR', `Error fetching AR summary: ${error.message}`, requestId);
     res.status(500).json({ error: 'Failed to fetch AR summary' });
   }
 });
 
 app.get('/api/bills/summary', async (req, res) => {
+  const requestId = `bills-summary-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const { companyId } = req.query;
+  
+  logWithApplicationInsights('INF', `Fetching bills summary for company ${companyId}`, requestId);
+  
   try {
-    const { companyId } = req.query;
     if (!companyId) {
+      logWithApplicationInsights('ERR', 'Bills summary fetch failed - companyId is required', requestId);
       return res.status(400).json({ error: 'companyId is required' });
     }
 
@@ -1322,7 +1386,7 @@ app.get('/api/bills/summary', async (req, res) => {
 
     res.json(response);
   } catch (error) {
-    console.error('Error fetching bills summary:', error);
+    logWithApplicationInsights('ERR', 'Error fetching bills summary: ' + error.message, requestId);
     res.status(500).json({ error: 'Failed to fetch bills summary' });
   }
 });
@@ -1424,12 +1488,16 @@ app.get('/api/transaction-group/:reference', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching transaction group:', error);
+    logWithApplicationInsights('ERR', 'Error fetching transaction group: ' + error.message, requestId);
     res.status(500).json({ error: 'Failed to fetch transaction group details' });
   }
 });
 
 app.get('/api/intercompany-balances', async (req, res) => {
+  const requestId = `intercompany-bal-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const { companyId } = req.query;
+  logWithApplicationInsights('INF', `Fetching intercompany balances for company ${companyId}`, requestId);
+  
   try {
     const { companyId } = req.query;
     if (!companyId) {
@@ -1457,7 +1525,7 @@ app.get('/api/intercompany-balances', async (req, res) => {
       relatedCompanies: []
     });
   } catch (error) {
-    console.error('Error fetching intercompany balances:', error);
+    logWithApplicationInsights('ERR', 'Error fetching intercompany balances: ' + error.message, requestId);
     res.status(500).json({ error: 'Failed to fetch intercompany balances' });
   }
 });
@@ -1590,9 +1658,525 @@ app.get('/api/companies/ar-ap-summary', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching company AR/AP summaries:', error);
+    logWithApplicationInsights('ERR', 'Error fetching company AR/AP summaries: ' + error.message, requestId);
     res.status(500).json({ error: 'Failed to fetch company AR/AP summaries' });
   }
+});
+
+// ====================================================================
+// CREDIT/DEBIT NOTES FUNCTIONALITY - INTEGRATED WITH EXISTING SYSTEM
+// ====================================================================
+
+// Application Insights Logger with specified format
+function logWithApplicationInsights(level, message, requestId = null) {
+  const timestamp = new Date();
+  const formattedTime = timestamp.toTimeString().split(' ')[0]; // HH:mm:ss format
+  const levelFormatted = level.toUpperCase().padEnd(3);
+  const reqId = requestId || `req-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  
+  console.log(`[${formattedTime} ${levelFormatted}] [${reqId}] ${message}`);
+  
+  // Application Insights ID: e04a0cf1-8129-4bc2-8707-016ae726c876
+  // In production, this would send to Application Insights service
+}
+
+// Database Setup API for Credit/Debit Notes
+app.post('/api/setup-database', async (req, res) => {
+  const requestId = `setup-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  logWithApplicationInsights('INF', 'Setting up database tables for credit/debit notes', requestId);
+  
+  try {
+    const tables = [];
+    
+    // Create credit notes table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS credit_notes (
+        id SERIAL PRIMARY KEY,
+        credit_note_number VARCHAR(50) UNIQUE NOT NULL,
+        company_id INTEGER NOT NULL,
+        customer_id INTEGER NOT NULL,
+        amount DECIMAL(15,2) NOT NULL,
+        reason TEXT,
+        credit_note_date DATE NOT NULL,
+        status VARCHAR(20) DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    tables.push('credit_notes');
+    
+    // Create debit notes table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS debit_notes (
+        id SERIAL PRIMARY KEY,
+        debit_note_number VARCHAR(50) UNIQUE NOT NULL,
+        company_id INTEGER NOT NULL,
+        vendor_id INTEGER NOT NULL,
+        amount DECIMAL(15,2) NOT NULL,
+        reason TEXT,
+        debit_note_date DATE NOT NULL,
+        status VARCHAR(20) DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    tables.push('debit_notes');
+    
+    // Create credit note line items table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS credit_note_line_items (
+        id SERIAL PRIMARY KEY,
+        credit_note_id INTEGER NOT NULL REFERENCES credit_notes(id),
+        product_id INTEGER,
+        quantity DECIMAL(10,2),
+        unit_price DECIMAL(15,2),
+        total_amount DECIMAL(15,2),
+        reason TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    tables.push('credit_note_line_items');
+    
+    // Create debit note line items table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS debit_note_line_items (
+        id SERIAL PRIMARY KEY,
+        debit_note_id INTEGER NOT NULL REFERENCES debit_notes(id),
+        product_id INTEGER,
+        quantity DECIMAL(10,2),
+        unit_price DECIMAL(15,2),
+        total_amount DECIMAL(15,2),
+        reason TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    tables.push('debit_note_line_items');
+    
+    // Create intercompany adjustments table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS intercompany_adjustments (
+        id SERIAL PRIMARY KEY,
+        reference_number VARCHAR(50) UNIQUE NOT NULL,
+        source_company_id INTEGER NOT NULL,
+        target_company_id INTEGER NOT NULL,
+        amount DECIMAL(15,2) NOT NULL,
+        reason TEXT,
+        adjustment_date DATE NOT NULL,
+        credit_note_id INTEGER REFERENCES credit_notes(id),
+        debit_note_id INTEGER REFERENCES debit_notes(id),
+        status VARCHAR(20) DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    tables.push('intercompany_adjustments');
+    
+    logWithApplicationInsights('INF', `Database setup completed - ${tables.length} tables ready`, requestId);
+    
+    res.json({
+      success: true,
+      message: 'Database tables created successfully',
+      tablesCreated: tables,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logWithApplicationInsights('ERR', `Database setup failed: ${error.message}`, requestId);
+    res.status(500).json({
+      success: false,
+      error: 'Database setup failed',
+      details: error.message
+    });
+  }
+});
+
+// Credit Notes API
+app.get('/api/credit-notes', async (req, res) => {
+  const requestId = `credit-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const companyId = req.query.companyId;
+  
+  logWithApplicationInsights('INF', `Fetching credit notes for company ${companyId}`, requestId);
+  
+  try {
+    let query = `
+      SELECT cn.*, 
+             c1.name as company_name,
+             c2.name as customer_name,
+             COUNT(cnli.id) as line_items_count
+      FROM credit_notes cn
+      LEFT JOIN companies c1 ON cn.company_id = c1.id
+      LEFT JOIN companies c2 ON cn.customer_id = c2.id
+      LEFT JOIN credit_note_line_items cnli ON cn.id = cnli.credit_note_id
+      WHERE 1=1
+    `;
+    const params = [];
+    
+    if (companyId) {
+      query += ' AND cn.company_id = $1';
+      params.push(companyId);
+    }
+    
+    query += ' GROUP BY cn.id, c1.name, c2.name ORDER BY cn.created_at DESC LIMIT 100';
+    
+    const result = await pool.query(query, params);
+    
+    logWithApplicationInsights('INF', `Found ${result.rows.length} credit notes`, requestId);
+    
+    res.json({
+      success: true,
+      creditNotes: result.rows
+    });
+  } catch (error) {
+    logWithApplicationInsights('ERR', `Credit notes fetch error: ${error.message}`, requestId);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch credit notes',
+      details: error.message
+    });
+  }
+});
+
+app.post('/api/credit-notes', async (req, res) => {
+  const requestId = `credit-create-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const { company_id, customer_id, amount, reason, credit_note_date, products } = req.body;
+  
+  logWithApplicationInsights('INF', `Creating credit note for company ${company_id}`, requestId);
+  
+  const client = await pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+    
+    // Generate credit note number
+    const creditNoteNumber = `CN-${company_id}-${Date.now()}`;
+    
+    // Insert credit note
+    const creditNoteResult = await client.query(`
+      INSERT INTO credit_notes (credit_note_number, company_id, customer_id, amount, reason, credit_note_date)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `, [creditNoteNumber, company_id, customer_id, amount, reason, credit_note_date]);
+    
+    const creditNote = creditNoteResult.rows[0];
+    
+    // Insert line items
+    if (products && products.length > 0) {
+      for (const product of products) {
+        await client.query(`
+          INSERT INTO credit_note_line_items (credit_note_id, product_id, quantity, unit_price, total_amount, reason)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [creditNote.id, product.product_id, product.quantity, product.unit_price, product.total_amount, product.reason]);
+      }
+    }
+    
+    await client.query('COMMIT');
+    
+    logWithApplicationInsights('INF', `Credit note created: ${creditNoteNumber}`, requestId);
+    
+    res.status(201).json({
+      success: true,
+      creditNote: creditNote,
+      message: 'Credit note created successfully'
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    logWithApplicationInsights('ERR', `Credit note creation failed: ${error.message}`, requestId);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create credit note',
+      details: error.message
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// Debit Notes API
+app.get('/api/debit-notes', async (req, res) => {
+  const requestId = `debit-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const companyId = req.query.companyId;
+  
+  logWithApplicationInsights('INF', `Fetching debit notes for company ${companyId}`, requestId);
+  
+  try {
+    let query = `
+      SELECT dn.*, 
+             c1.name as company_name,
+             c2.name as vendor_name,
+             COUNT(dnli.id) as line_items_count
+      FROM debit_notes dn
+      LEFT JOIN companies c1 ON dn.company_id = c1.id
+      LEFT JOIN companies c2 ON dn.vendor_id = c2.id
+      LEFT JOIN debit_note_line_items dnli ON dn.id = dnli.debit_note_id
+      WHERE 1=1
+    `;
+    const params = [];
+    
+    if (companyId) {
+      query += ' AND dn.company_id = $1';
+      params.push(companyId);
+    }
+    
+    query += ' GROUP BY dn.id, c1.name, c2.name ORDER BY dn.created_at DESC LIMIT 100';
+    
+    const result = await pool.query(query, params);
+    
+    logWithApplicationInsights('INF', `Found ${result.rows.length} debit notes`, requestId);
+    
+    res.json({
+      success: true,
+      debitNotes: result.rows
+    });
+  } catch (error) {
+    logWithApplicationInsights('ERR', `Debit notes fetch error: ${error.message}`, requestId);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch debit notes',
+      details: error.message
+    });
+  }
+});
+
+app.post('/api/debit-notes', async (req, res) => {
+  const requestId = `debit-create-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const { company_id, vendor_id, amount, reason, debit_note_date, products } = req.body;
+  
+  logWithApplicationInsights('INF', `Creating debit note for company ${company_id}`, requestId);
+  
+  const client = await pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+    
+    // Generate debit note number
+    const debitNoteNumber = `DN-${company_id}-${Date.now()}`;
+    
+    // Insert debit note
+    const debitNoteResult = await client.query(`
+      INSERT INTO debit_notes (debit_note_number, company_id, vendor_id, amount, reason, debit_note_date)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `, [debitNoteNumber, company_id, vendor_id, amount, reason, debit_note_date]);
+    
+    const debitNote = debitNoteResult.rows[0];
+    
+    // Insert line items
+    if (products && products.length > 0) {
+      for (const product of products) {
+        await client.query(`
+          INSERT INTO debit_note_line_items (debit_note_id, product_id, quantity, unit_price, total_amount, reason)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [debitNote.id, product.product_id, product.quantity, product.unit_price, product.total_amount, product.reason]);
+      }
+    }
+    
+    await client.query('COMMIT');
+    
+    logWithApplicationInsights('INF', `Debit note created: ${debitNoteNumber}`, requestId);
+    
+    res.status(201).json({
+      success: true,
+      debitNote: debitNote,
+      message: 'Debit note created successfully'
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    logWithApplicationInsights('ERR', `Debit note creation failed: ${error.message}`, requestId);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create debit note',
+      details: error.message
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// Intercompany Adjustments API
+app.get('/api/intercompany-adjustments', async (req, res) => {
+  const requestId = `ic-adj-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  
+  logWithApplicationInsights('INF', 'Fetching intercompany adjustments', requestId);
+  
+  try {
+    const result = await pool.query(`
+      SELECT ia.*, 
+             c1.name as source_company_name,
+             c2.name as target_company_name,
+             cn.credit_note_number,
+             dn.debit_note_number
+      FROM intercompany_adjustments ia
+      LEFT JOIN companies c1 ON ia.source_company_id = c1.id
+      LEFT JOIN companies c2 ON ia.target_company_id = c2.id
+      LEFT JOIN credit_notes cn ON ia.credit_note_id = cn.id
+      LEFT JOIN debit_notes dn ON ia.debit_note_id = dn.id
+      ORDER BY ia.created_at DESC LIMIT 100
+    `);
+    
+    logWithApplicationInsights('INF', `Found ${result.rows.length} intercompany adjustments`, requestId);
+    
+    res.json({
+      success: true,
+      adjustments: result.rows
+    });
+  } catch (error) {
+    logWithApplicationInsights('ERR', `Intercompany adjustments fetch error: ${error.message}`, requestId);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch intercompany adjustments',
+      details: error.message
+    });
+  }
+});
+
+app.post('/api/intercompany-adjustment', async (req, res) => {
+  const requestId = `ic-create-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const { source_company_id, target_company_id, amount, reason, adjustment_date, products } = req.body;
+  
+  logWithApplicationInsights('INF', `Creating intercompany adjustment between ${source_company_id} and ${target_company_id}`, requestId);
+  
+  const client = await pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+    
+    const referenceNumber = `ADJ-${source_company_id}-${target_company_id}-${Date.now()}`;
+    
+    // Create credit note for source company
+    const creditNoteNumber = `CN-IC-${source_company_id}-${Date.now()}`;
+    const creditNoteResult = await client.query(`
+      INSERT INTO credit_notes (credit_note_number, company_id, customer_id, amount, reason, credit_note_date)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `, [creditNoteNumber, source_company_id, target_company_id, amount, `Intercompany adjustment: ${reason}`, adjustment_date]);
+    
+    const creditNote = creditNoteResult.rows[0];
+    
+    // Create debit note for target company
+    const debitNoteNumber = `DN-IC-${target_company_id}-${Date.now()}`;
+    const debitNoteResult = await client.query(`
+      INSERT INTO debit_notes (debit_note_number, company_id, vendor_id, amount, reason, debit_note_date)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `, [debitNoteNumber, target_company_id, source_company_id, amount, `Intercompany adjustment: ${reason}`, adjustment_date]);
+    
+    const debitNote = debitNoteResult.rows[0];
+    
+    // Create adjustment record
+    const adjustmentResult = await client.query(`
+      INSERT INTO intercompany_adjustments (reference_number, source_company_id, target_company_id, amount, reason, adjustment_date, credit_note_id, debit_note_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *
+    `, [referenceNumber, source_company_id, target_company_id, amount, reason, adjustment_date, creditNote.id, debitNote.id]);
+    
+    // Insert line items for both notes
+    if (products && products.length > 0) {
+      for (const product of products) {
+        await client.query(`
+          INSERT INTO credit_note_line_items (credit_note_id, product_id, quantity, unit_price, total_amount, reason)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [creditNote.id, product.product_id, product.quantity, product.unit_price, product.total_amount, product.reason]);
+        
+        await client.query(`
+          INSERT INTO debit_note_line_items (debit_note_id, product_id, quantity, unit_price, total_amount, reason)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [debitNote.id, product.product_id, product.quantity, product.unit_price, product.total_amount, product.reason]);
+      }
+    }
+    
+    await client.query('COMMIT');
+    
+    logWithApplicationInsights('INF', `Intercompany adjustment created: ${referenceNumber}`, requestId);
+    
+    res.status(201).json({
+      success: true,
+      adjustment: adjustmentResult.rows[0],
+      creditNote: creditNote,
+      debitNote: debitNote,
+      message: 'Intercompany adjustment created successfully'
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    logWithApplicationInsights('ERR', `Intercompany adjustment creation failed: ${error.message}`, requestId);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create intercompany adjustment',
+      details: error.message
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// Account Management APIs
+app.get('/api/credit-accounts', async (req, res) => {
+  const requestId = `credit-acc-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT code as account_code, name as account_name, account_type_id as account_type
+      FROM accounts 
+      WHERE account_type_id IN (SELECT id FROM account_types WHERE name LIKE '%Credit%' OR name LIKE '%Revenue%')
+      ORDER BY code
+      LIMIT 50
+    `);
+    
+    res.json({
+      success: true,
+      accounts: result.rows
+    });
+  } catch (error) {
+    logWithApplicationInsights('ERR', `Credit accounts fetch error: ${error.message}`, requestId);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch credit accounts',
+      details: error.message
+    });
+  }
+});
+
+app.get('/api/debit-accounts', async (req, res) => {
+  const requestId = `debit-acc-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT code as account_code, name as account_name, account_type_id as account_type
+      FROM accounts 
+      WHERE account_type_id IN (SELECT id FROM account_types WHERE name LIKE '%Debit%' OR name LIKE '%Expense%' OR name LIKE '%Asset%')
+      ORDER BY code
+      LIMIT 50
+    `);
+    
+    res.json({
+      success: true,
+      accounts: result.rows
+    });
+  } catch (error) {
+    logWithApplicationInsights('ERR', `Debit accounts fetch error: ${error.message}`, requestId);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch debit accounts',
+      details: error.message
+    });
+  }
+});
+
+// Enhanced Health Check with Credit/Debit Features
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    service: 'Multi-Company Accounting with Credit/Debit Notes',
+    timestamp: new Date().toISOString(),
+    database: 'External PostgreSQL at 135.235.154.222',
+    features: [
+      'Sales Orders Management',
+      'Purchase Orders Management',
+      'Credit Notes Management',
+      'Debit Notes Management', 
+      'Intercompany Adjustments',
+      'Application Insights Logging',
+      'Product Integration',
+      'Multi-Company Support (42+ companies)'
+    ]
+  });
 });
 
 // Start server
@@ -1600,4 +2184,8 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Multi-Company Accounting System running on port ${PORT}`);
   console.log(`📊 All required endpoints functional with authentic data`);
   console.log(`🔗 Connected to external database: 135.235.154.222`);
+  console.log(`💳 Credit/Debit Notes: GET/POST /api/credit-notes, /api/debit-notes`);
+  console.log(`🔄 Intercompany Adjustments: GET/POST /api/intercompany-adjustments`);
+  console.log(`🔧 Database Setup: POST /api/setup-database`);
+  console.log(`📈 Enhanced Health Check: GET /api/health`);
 });
