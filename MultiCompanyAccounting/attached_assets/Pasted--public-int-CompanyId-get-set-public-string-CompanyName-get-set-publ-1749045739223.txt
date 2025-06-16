@@ -1,0 +1,71 @@
+ {
+     public int CompanyId { get; set; }
+     public string CompanyName { get; set; }
+     public string ReportDate { get; set; }
+     public ReportSummary Summary { get; set; }
+     public List<ReplitPurchaseOrder> PurchaseOrders { get; set; }
+ }
+
+ public class ReportSummary
+ {
+     public int TotalOrders { get; set; }
+     public decimal TotalOrderValue { get; set; }
+     public int OrdersWithBills { get; set; }
+     public decimal TotalBilled { get; set; }
+     public decimal TotalPaid { get; set; }
+     public decimal PendingBillValue { get; set; }
+     public decimal PendingPaymentValue { get; set; }
+ }
+
+ public class ReplitPurchaseOrder
+ {
+     public int OrderId { get; set; }
+     public string OrderNumber { get; set; }
+     public string OrderDate { get; set; }
+     public string VendorName { get; set; }
+     public decimal OrderTotal { get; set; }
+     public string Status { get; set; }
+     public List<OrderItem> OrderItems { get; set; }
+     public BillDetails BillDetails { get; set; }
+     public List<PaymentDetail> PaymentDetails { get; set; }
+     public string WorkflowStatus { get; set; }
+ }
+
+ public class OrderItem
+ {
+     public int ProductId { get; set; }
+     public string ProductCode { get; set; }
+     public string ProductName { get; set; }
+     public int Quantity { get; set; }
+     public decimal UnitPrice { get; set; }
+     public decimal Amount { get; set; }
+ }
+
+ public class BillDetails
+ {
+     public int BillId { get; set; }
+     public string BillNumber { get; set; }
+     public string BillDate { get; set; }
+     public decimal BillTotal { get; set; }
+     public string Status { get; set; }
+     public List<BillItem> BillItems { get; set; }
+ }
+
+ public class BillItem
+ {
+     public int ProductId { get; set; }
+     public string ProductCode { get; set; }
+     public string ProductName { get; set; }
+     public int Quantity { get; set; }
+     public decimal UnitPrice { get; set; }
+     public decimal Amount { get; set; }
+ }
+
+ public class PaymentDetail
+ {
+     public int PaymentId { get; set; }
+     public string PaymentNumber { get; set; }
+     public decimal Amount { get; set; }
+     public string PaymentDate { get; set; }
+     public string PaymentMethod { get; set; }
+ }

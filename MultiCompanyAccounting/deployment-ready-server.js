@@ -370,7 +370,8 @@ app.get('/api/intercompany-balances', async (req, res) => {
 app.post('/api/intercompany/sales-order', async (req, res) => {
   const client = await pool.connect();
   try {
-    const { sourceCompanyId, targetCompanyId, products = [], total = 1000 } = req.body;
+    const { sourceCompanyId, targetCompanyId, products = [], orderTotal, total, referenceNumber } = req.body;
+    const finalTotal = orderTotal || total || 1000;
     
     console.log(`Creating intercompany sales order: ${sourceCompanyId} → ${targetCompanyId}`);
     
@@ -395,7 +396,7 @@ app.post('/api/intercompany/sales-order', async (req, res) => {
     // Generate order number and reference
     const timestamp = Date.now();
     const orderNumber = `SO-${sourceCompanyId}-${timestamp}`;
-    const referenceNumber = `IC-REF-${sourceCompanyId}-${targetCompanyId}-${timestamp}`;
+    const finalReferenceNumber = referenceNumber || `IC-REF-${sourceCompanyId}-${targetCompanyId}-${timestamp}`;
 
     // Create sales order
     const salesOrderResult = await client.query(`
@@ -404,23 +405,27 @@ app.post('/api/intercompany/sales-order', async (req, res) => {
         status, total, reference_number, created_at
       ) VALUES ($1, $2, $3, NOW(), NOW() + INTERVAL '7 days', $4, $5, $6, NOW())
       RETURNING id, order_number, total, status, reference_number
-    `, [sourceCompanyId, targetCompanyId, orderNumber, 'Pending', total, referenceNumber]);
+    `, [sourceCompanyId, targetCompanyId, orderNumber, 'Pending', finalTotal, finalReferenceNumber]);
 
     const salesOrder = salesOrderResult.rows[0];
 
-    // Create corresponding purchase order
-    const poNumber = `PO-${targetCompanyId}-${timestamp}`;
-    const poReferenceNumber = `PO-REF-${targetCompanyId}-${timestamp}`;
-
-    const purchaseOrderResult = await client.query(`
-      INSERT INTO purchase_orders (
-        company_id, vendor_id, order_number, order_date, expected_date,
-        status, total, reference_number, created_at
-      ) VALUES ($1, $2, $3, NOW(), NOW() + INTERVAL '7 days', $4, $5, $6, NOW())
-      RETURNING id, order_number, total, status, reference_number
-    `, [targetCompanyId, sourceCompanyId, poNumber, 'Pending', total, poReferenceNumber]);
-
-    const purchaseOrder = purchaseOrderResult.rows[0];
+    // Save products to sales_order_items table if products array provided
+    if (products && products.length > 0) {
+      for (const product of products) {
+        await client.query(`
+          INSERT INTO sales_order_items (
+            sales_order_id, product_id, quantity, unit_price, amount, description
+          ) VALUES ($1, $2, $3, $4, $5, $6)
+        `, [
+          salesOrderResult.rows[0].id,
+          product.id || product.productId,
+          product.quantity || 1,
+          product.unitPrice || product.unit_price || 0,
+          product.lineTotal || product.line_total || product.amount || (product.quantity || 1) * (product.unitPrice || product.unit_price || 0),
+          product.description || product.name || ''
+        ]);
+      }
+    }
 
     await client.query('COMMIT');
 

@@ -68,6 +68,8 @@ app.get('/api/companies', async (req, res) => {
   }
 });
 
+
+
 app.post('/api/companies', async (req, res) => {
   const client = await pool.connect();
   try {
@@ -153,9 +155,10 @@ app.post('/api/companies', async (req, res) => {
 app.post('/api/intercompany/sales-order', async (req, res) => {
   const client = await pool.connect();
   try {
-    const { sourceCompanyId, targetCompanyId, products = [], orderTotal } = req.body;
+    const { sourceCompanyId, targetCompanyId, products = [], orderTotal, total, referenceNumber } = req.body;
+    const finalTotal = orderTotal || total;
     
-    if (!sourceCompanyId || !targetCompanyId || !orderTotal) {
+    if (!sourceCompanyId || !targetCompanyId || !finalTotal) {
       return res.status(400).json({ error: 'sourceCompanyId, targetCompanyId, and orderTotal are required' });
     }
 
@@ -176,9 +179,9 @@ app.post('/api/intercompany/sales-order', async (req, res) => {
 
     // Create comprehensive transaction group reference for tracking all related transactions
     const timestamp = Date.now();
-    const transactionGroupRef = `TXN-GROUP-${sourceCompanyId}-${targetCompanyId}-${timestamp}`;
+    const transactionGroupRef = referenceNumber || `TXN-GROUP-${sourceCompanyId}-${targetCompanyId}-${timestamp}`;
     const orderNumber = `SO-${sourceCompanyId}-${timestamp}`;
-    const referenceNumber = `IC-REF-${sourceCompanyId}-${targetCompanyId}-${timestamp}`;
+
 
     const salesOrderResult = await client.query(`
       INSERT INTO sales_orders (
@@ -186,11 +189,29 @@ app.post('/api/intercompany/sales-order', async (req, res) => {
         status, total, reference_number, created_at
       ) VALUES ($1, $2, $3, NOW(), NOW() + INTERVAL '7 days', $4, $5, $6, NOW())
       RETURNING id, order_number, total, status, reference_number
-    `, [sourceCompanyId, targetCompanyId, orderNumber, 'Pending', orderTotal, transactionGroupRef]);
+    `, [sourceCompanyId, targetCompanyId, orderNumber, 'Pending', finalTotal, transactionGroupRef]);
+
+    // Save products to sales_order_items table if products array provided
+    if (products && products.length > 0) {
+      for (const product of products) {
+        await client.query(`
+          INSERT INTO sales_order_items (
+            sales_order_id, product_id, quantity, unit_price, amount, description
+          ) VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (id) DO NOTHING
+        `, [
+          salesOrderResult.rows[0].id,
+          product.id || product.productId,
+          product.quantity || 1,
+          product.unitPrice || product.unit_price || 0,
+          product.lineTotal || product.line_total || product.amount || (product.quantity || 1) * (product.unitPrice || product.unit_price || 0),
+          product.description || product.name || ''
+        ]);
+      }
+    }
 
     // Create corresponding purchase order with same transaction group reference
     const poNumber = `PO-${targetCompanyId}-${timestamp}`;
-    const poReferenceNumber = `PO-REF-${targetCompanyId}-${timestamp}`;
 
     const purchaseOrderResult = await client.query(`
       INSERT INTO purchase_orders (
@@ -198,7 +219,26 @@ app.post('/api/intercompany/sales-order', async (req, res) => {
         status, total, reference_number, created_at
       ) VALUES ($1, $2, $3, NOW(), NOW() + INTERVAL '7 days', $4, $5, $6, NOW())
       RETURNING id, order_number, total, status, reference_number
-    `, [targetCompanyId, sourceCompanyId, poNumber, 'Pending', orderTotal, transactionGroupRef]);
+    `, [targetCompanyId, sourceCompanyId, poNumber, 'Pending', finalTotal, transactionGroupRef]);
+
+    // Save products to purchase_order_items table if products array provided
+    if (products && products.length > 0) {
+      for (const product of products) {
+        await client.query(`
+          INSERT INTO purchase_order_items (
+            purchase_order_id, product_id, quantity, unit_price, amount, description
+          ) VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (id) DO NOTHING
+        `, [
+          purchaseOrderResult.rows[0].id,
+          product.id || product.productId,
+          product.quantity || 1,
+          product.unitPrice || product.unit_price || 0,
+          product.lineTotal || product.line_total || product.amount || (product.quantity || 1) * (product.unitPrice || product.unit_price || 0),
+          product.description || product.name || ''
+        ]);
+      }
+    }
 
     await client.query('COMMIT');
 
@@ -239,6 +279,255 @@ app.post('/api/intercompany/sales-order', async (req, res) => {
   }
 });
 
+// API endpoint to get products for a sales order
+app.get('/api/sales-orders/:id/products', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({ error: 'Sales order ID is required' });
+    }
+
+    // Get sales order details with products
+    const salesOrderProducts = await pool.query(`
+      SELECT 
+        so.id as sales_order_id,
+        so.order_number,
+        so.total as order_total,
+        so.status,
+        so.reference_number,
+        c.name as company_name,
+        cust.name as customer_name,
+        soi.id as item_id,
+        soi.quantity,
+        soi.unit_price,
+        soi.amount,
+        soi.description as item_description,
+        p.id as product_id,
+        p.code as product_code,
+        p.name as product_name,
+        p.description as product_description,
+        p.sales_price as product_sales_price
+      FROM sales_orders so
+      LEFT JOIN sales_order_items soi ON so.id = soi.sales_order_id
+      LEFT JOIN products p ON soi.product_id = p.id
+      LEFT JOIN companies c ON so.company_id = c.id
+      LEFT JOIN companies cust ON so.customer_id = cust.id
+      WHERE so.id = $1
+      ORDER BY soi.id
+    `, [id]);
+
+    if (salesOrderProducts.rows.length === 0) {
+      return res.status(404).json({ error: 'Sales order not found' });
+    }
+
+    const salesOrder = salesOrderProducts.rows[0];
+    const products = salesOrderProducts.rows
+      .filter(row => row.product_id) // Only include rows with products
+      .map(row => ({
+        itemId: row.item_id,
+        productId: row.product_id,
+        productCode: row.product_code,
+        productName: row.product_name,
+        productDescription: row.product_description,
+        quantity: parseFloat(row.quantity),
+        unitPrice: parseFloat(row.unit_price),
+        lineTotal: parseFloat(row.amount),
+        itemDescription: row.item_description,
+        salesPrice: parseFloat(row.product_sales_price) || 0
+      }));
+
+    res.json({
+      success: true,
+      salesOrder: {
+        id: salesOrder.sales_order_id,
+        orderNumber: salesOrder.order_number,
+        total: parseFloat(salesOrder.order_total),
+        status: salesOrder.status,
+        referenceNumber: salesOrder.reference_number,
+        companyName: salesOrder.company_name,
+        customerName: salesOrder.customer_name
+      },
+      products: products,
+      productCount: products.length,
+      totalProductValue: products.reduce((sum, p) => sum + p.lineTotal, 0)
+    });
+
+  } catch (error) {
+    console.error('Error fetching sales order products:', error);
+    res.status(500).json({ error: 'Failed to fetch sales order products' });
+  }
+});
+
+// API endpoint to get products for a purchase order
+app.get('/api/purchase-orders/:id/products', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({ error: 'Purchase order ID is required' });
+    }
+
+    // Get purchase order details with products
+    const purchaseOrderProducts = await pool.query(`
+      SELECT 
+        po.id as purchase_order_id,
+        po.order_number,
+        po.total as order_total,
+        po.status,
+        po.reference_number,
+        c.name as company_name,
+        v.name as vendor_name,
+        poi.id as item_id,
+        poi.quantity,
+        poi.unit_price,
+        poi.amount,
+        poi.description as item_description,
+        p.id as product_id,
+        p.code as product_code,
+        p.name as product_name,
+        p.description as product_description,
+        p.purchase_price as product_purchase_price
+      FROM purchase_orders po
+      LEFT JOIN purchase_order_items poi ON po.id = poi.purchase_order_id
+      LEFT JOIN products p ON poi.product_id = p.id
+      LEFT JOIN companies c ON po.company_id = c.id
+      LEFT JOIN companies v ON po.vendor_id = v.id
+      WHERE po.id = $1
+      ORDER BY poi.id
+    `, [id]);
+
+    if (purchaseOrderProducts.rows.length === 0) {
+      return res.status(404).json({ error: 'Purchase order not found' });
+    }
+
+    const purchaseOrder = purchaseOrderProducts.rows[0];
+    const products = purchaseOrderProducts.rows
+      .filter(row => row.product_id) // Only include rows with products
+      .map(row => ({
+        itemId: row.item_id,
+        productId: row.product_id,
+        productCode: row.product_code,
+        productName: row.product_name,
+        productDescription: row.product_description,
+        quantity: parseFloat(row.quantity),
+        unitPrice: parseFloat(row.unit_price),
+        lineTotal: parseFloat(row.amount),
+        itemDescription: row.item_description,
+        purchasePrice: parseFloat(row.product_purchase_price) || 0
+      }));
+
+    res.json({
+      success: true,
+      purchaseOrder: {
+        id: purchaseOrder.purchase_order_id,
+        orderNumber: purchaseOrder.order_number,
+        total: parseFloat(purchaseOrder.order_total),
+        status: purchaseOrder.status,
+        referenceNumber: purchaseOrder.reference_number,
+        companyName: purchaseOrder.company_name,
+        vendorName: purchaseOrder.vendor_name
+      },
+      products: products,
+      productCount: products.length,
+      totalProductValue: products.reduce((sum, p) => sum + p.lineTotal, 0)
+    });
+
+  } catch (error) {
+    console.error('Error fetching purchase order products:', error);
+    res.status(500).json({ error: 'Failed to fetch purchase order products' });
+  }
+});
+
+// API endpoint to get all products
+app.get('/api/products', async (req, res) => {
+  try {
+    const { companyId, isActive } = req.query;
+    
+    let query = `
+      SELECT 
+        p.id,
+        p.company_id,
+        p.code,
+        p.name,
+        p.description,
+        p.sales_price,
+        p.purchase_price,
+        p.sales_account_id,
+        p.purchase_account_id,
+        p.inventory_account_id,
+        p.is_active,
+        p.created_at,
+        c.name as company_name
+      FROM products p
+      LEFT JOIN companies c ON p.company_id = c.id
+      WHERE 1=1
+    `;
+    
+    const params = [];
+    let paramIndex = 1;
+    
+    // Filter by company if provided
+    if (companyId) {
+      query += ` AND p.company_id = $${paramIndex}`;
+      params.push(companyId);
+      paramIndex++;
+    }
+    
+    // Filter by active status if provided
+    if (isActive !== undefined) {
+      query += ` AND p.is_active = $${paramIndex}`;
+      params.push(isActive === 'true');
+      paramIndex++;
+    }
+    
+    query += ` ORDER BY p.company_id, p.code, p.name`;
+    
+    const result = await pool.query(query, params);
+    
+    const products = result.rows.map(row => ({
+      id: row.id,
+      companyId: row.company_id,
+      companyName: row.company_name,
+      code: row.code,
+      name: row.name,
+      description: row.description,
+      salesPrice: parseFloat(row.sales_price) || 0,
+      purchasePrice: parseFloat(row.purchase_price) || 0,
+      salesAccountId: row.sales_account_id,
+      purchaseAccountId: row.purchase_account_id,
+      inventoryAccountId: row.inventory_account_id,
+      isActive: row.is_active,
+      createdAt: row.created_at
+    }));
+    
+    // Group products by company for easier consumption
+    const productsByCompany = {};
+    products.forEach(product => {
+      const companyKey = product.companyName || `Company ${product.companyId}`;
+      if (!productsByCompany[companyKey]) {
+        productsByCompany[companyKey] = [];
+      }
+      productsByCompany[companyKey].push(product);
+    });
+    
+    res.json({
+      success: true,
+      totalProducts: products.length,
+      products: products,
+      productsByCompany: productsByCompany,
+      filters: {
+        companyId: companyId ? parseInt(companyId) : null,
+        isActive: isActive !== undefined ? isActive === 'true' : null
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    res.status(500).json({ error: 'Failed to fetch products' });
+  }
+});
+
 // 3. INTERCOMPANY INVOICE (Creates sales invoice + purchase bill)
 app.post('/api/intercompany/invoice', async (req, res) => {
   const client = await pool.connect();
@@ -249,9 +538,9 @@ app.post('/api/intercompany/invoice', async (req, res) => {
       return res.status(400).json({ error: 'All fields are required' });
     }
 
-    // Validate sales order exists
+    // Validate sales order exists and get customer info
     const salesOrderResult = await client.query(
-      'SELECT id, order_number, total FROM sales_orders WHERE id = $1 AND company_id = $2',
+      'SELECT id, order_number, total, customer_id FROM sales_orders WHERE id = $1 AND company_id = $2',
       [salesOrderId, sourceCompanyId]
     );
     
@@ -259,50 +548,79 @@ app.post('/api/intercompany/invoice', async (req, res) => {
       return res.status(400).json({ error: 'Sales order not found' });
     }
 
-    // Find corresponding purchase order in target company
-    const purchaseOrderResult = await client.query(
-      'SELECT id, order_number FROM purchase_orders WHERE company_id = $1 AND vendor_id = $2',
-      [targetCompanyId, sourceCompanyId]
-    );
+    const salesOrder = salesOrderResult.rows[0];
+    
+    // Validate that targetCompanyId matches the customer_id from sales order
+    if (salesOrder.customer_id != targetCompanyId) {
+      return res.status(400).json({ 
+        error: `Target company ID (${targetCompanyId}) does not match sales order customer ID (${salesOrder.customer_id})`,
+        salesOrderId: salesOrderId,
+        expectedCustomerId: salesOrder.customer_id
+      });
+    }
 
     await client.query('BEGIN');
 
     const timestamp = Date.now();
     
-    // 1. Create sales invoice in source company
+    // Get the sales order reference number to reuse for invoice and bill tracking
+    const salesOrderRef = await client.query(
+      'SELECT reference_number FROM sales_orders WHERE id = $1',
+      [salesOrderId]
+    );
+    
+    // Use the existing sales order reference number instead of creating a new one
+    const transactionGroupRef = salesOrderRef.rows[0]?.reference_number;
+    
+    // Find corresponding purchase order in target company with matching reference number
+    const purchaseOrderResult = await client.query(
+      'SELECT id, order_number FROM purchase_orders WHERE company_id = $1 AND vendor_id = $2 AND reference_number = $3',
+      [targetCompanyId, sourceCompanyId, salesOrderRef.rows[0]?.reference_number]
+    );
+    
+    // 1. Get next available invoice ID to avoid primary key conflicts
+    const maxIdResult = await client.query('SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM invoices');
+    const nextInvoiceId = maxIdResult.rows[0].next_id;
+    
+    // Create sales invoice in source company with transaction reference
     const invoiceNumber = `INV-${sourceCompanyId}-${timestamp}`;
     const salesInvoiceResult = await client.query(`
       INSERT INTO invoices (
-        company_id, customer_id, sales_order_id, invoice_number, 
-        invoice_date, due_date, total, status, created_at
-      ) VALUES ($1, $2, $3, $4, NOW(), NOW() + INTERVAL '30 days', $5, $6, NOW())
+        id, company_id, customer_id, sales_order_id, invoice_number, 
+        invoice_date, due_date, total, status, reference_number
+      ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW() + INTERVAL '30 days', $6, $7, $8)
       RETURNING id, invoice_number, total, status
-    `, [sourceCompanyId, targetCompanyId, salesOrderId, invoiceNumber, total, 'pending']);
+    `, [nextInvoiceId, sourceCompanyId, targetCompanyId, salesOrderId, invoiceNumber, total, 'pending', transactionGroupRef]);
 
-    // 2. Create corresponding purchase bill in target company
+    // 2. Get next available bill ID and create corresponding purchase bill
+    const maxBillIdResult = await client.query('SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM bills');
+    const nextBillId = maxBillIdResult.rows[0].next_id;
+    
     const billNumber = `BILL-${targetCompanyId}-${timestamp}`;
-    const purchaseOrderId = purchaseOrderResult.rows[0]?.id || null;
+    const purchaseOrderId = purchaseOrderResult.rows.length > 0 ? purchaseOrderResult.rows[0].id : null;
     
     const purchaseBillResult = await client.query(`
       INSERT INTO bills (
-        company_id, vendor_id, purchase_order_id, bill_number, 
-        bill_date, due_date, total, status, created_at
-      ) VALUES ($1, $2, $3, $4, NOW(), NOW() + INTERVAL '30 days', $5, $6, NOW())
+        id, company_id, vendor_id, purchase_order_id, bill_number, 
+        bill_date, due_date, total, status, reference_number
+      ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW() + INTERVAL '30 days', $6, $7, $8)
       RETURNING id, bill_number, total, status
-    `, [targetCompanyId, sourceCompanyId, purchaseOrderId, billNumber, total, 'pending']);
+    `, [nextBillId, targetCompanyId, sourceCompanyId, purchaseOrderId, billNumber, total, 'pending', transactionGroupRef]);
 
     await client.query('COMMIT');
 
     res.status(201).json({
       success: true,
       message: 'Intercompany invoice and bill created successfully',
+      transactionGroupReference: transactionGroupRef,
       salesInvoice: {
         id: salesInvoiceResult.rows[0].id,
         invoiceNumber: salesInvoiceResult.rows[0].invoice_number,
         total: parseFloat(salesInvoiceResult.rows[0].total),
         status: salesInvoiceResult.rows[0].status,
         companyId: sourceCompanyId,
-        salesOrderId: salesOrderId
+        salesOrderId: salesOrderId,
+        referenceNumber: transactionGroupRef
       },
       purchaseBill: {
         id: purchaseBillResult.rows[0].id,
@@ -310,14 +628,27 @@ app.post('/api/intercompany/invoice', async (req, res) => {
         total: parseFloat(purchaseBillResult.rows[0].total),
         status: purchaseBillResult.rows[0].status,
         companyId: targetCompanyId,
-        purchaseOrderId: purchaseOrderId
+        purchaseOrderId: purchaseOrderId,
+        referenceNumber: transactionGroupRef
       }
     });
 
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error creating intercompany invoice:', error);
-    res.status(500).json({ error: 'Failed to create intercompany invoice' });
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      constraint: error.constraint,
+      table: error.table,
+      column: error.column
+    });
+    res.status(500).json({ 
+      error: 'Failed to create intercompany invoice',
+      details: error.message,
+      code: error.code
+    });
   } finally {
     client.release();
   }
@@ -337,25 +668,35 @@ app.post('/api/intercompany/payment', async (req, res) => {
 
     const timestamp = Date.now();
     
-    // 1. Create bill payment in source company (paying the bill)
+    // 1. Get next available payment ID and create bill payment in source company
+    const maxPaymentIdResult = await client.query('SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM bill_payments');
+    const nextPaymentId = maxPaymentIdResult.rows[0].next_id;
+    
     const paymentNumber = `PAY-${sourceCompanyId}-${timestamp}`;
     const paymentResult = await client.query(`
       INSERT INTO bill_payments (
-        company_id, vendor_id, bill_id, payment_number, 
-        payment_date, amount, status, created_at
-      ) VALUES ($1, $2, $3, $4, NOW(), $5, $6, NOW())
-      RETURNING id, payment_number, amount, status
-    `, [sourceCompanyId, targetCompanyId, billId, paymentNumber, amount, 'completed']);
+        id, company_id, vendor_id, bill_id, payment_number, 
+        payment_date, amount, payment_method
+      ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7)
+      RETURNING id, payment_number, amount
+    `, [nextPaymentId, sourceCompanyId, targetCompanyId, billId, paymentNumber, amount, 'intercompany_transfer']);
 
-    // 2. Create corresponding receipt in target company (receiving the payment)
+    // 2. Get next available receipt ID and create corresponding receipt in target company
+    const maxReceiptIdResult = await client.query('SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM receipts');
+    const nextReceiptId = maxReceiptIdResult.rows[0].next_id;
+    
     const receiptNumber = `REC-${targetCompanyId}-${timestamp}`;
+    // Get sales_order_id from the invoice for receipt creation
+    const invoiceQuery = await client.query('SELECT sales_order_id FROM invoices WHERE id = $1', [invoiceId]);
+    const salesOrderId = invoiceQuery.rows[0]?.sales_order_id || null;
+    
     const receiptResult = await client.query(`
       INSERT INTO receipts (
-        company_id, customer_id, invoice_id, receipt_number, 
-        receipt_date, amount, status, created_at
-      ) VALUES ($1, $2, $3, $4, NOW(), $5, $6, NOW())
-      RETURNING id, receipt_number, amount, status
-    `, [targetCompanyId, sourceCompanyId, invoiceId, receiptNumber, amount, 'completed']);
+        id, company_id, customer_id, invoice_id, receipt_number, 
+        receipt_date, amount, payment_method, sales_order_id, debit_account_id, credit_account_id
+      ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8, $9, $10)
+      RETURNING id, receipt_number, amount
+    `, [nextReceiptId, targetCompanyId, sourceCompanyId, invoiceId, receiptNumber, amount, 'intercompany_transfer', salesOrderId, 1, 2]);
 
     await client.query('COMMIT');
 
@@ -438,6 +779,57 @@ app.get('/api/reference/:reference', async (req, res) => {
           ...transaction,
           companyName: companyResult.rows[0]?.name,
           customerName: customerResult.rows[0]?.name
+        }
+      });
+    }
+
+    // Search bills
+    const billResult = await pool.query(`
+      SELECT 'bill' as type, id, bill_number as reference,
+             company_id, vendor_id, total, status, created_at, reference_number
+      FROM bills 
+      WHERE bill_number = $1 OR reference_number = $1
+      LIMIT 1
+    `, [reference]);
+
+    if (billResult.rows.length > 0) {
+      const transaction = billResult.rows[0];
+      const companyResult = await pool.query('SELECT name FROM companies WHERE id = $1', [transaction.company_id]);
+      const vendorResult = await pool.query('SELECT name FROM companies WHERE id = $1', [transaction.vendor_id]);
+      
+      return res.json({
+        success: true,
+        transaction: {
+          ...transaction,
+          companyName: companyResult.rows[0]?.name,
+          vendorName: vendorResult.rows[0]?.name
+        }
+      });
+    }
+
+    // Search purchase orders
+    const purchaseOrderResult = await pool.query(`
+      SELECT 'purchase_order' as type, id, order_number as reference,
+             company_id, vendor_id, total, status, created_at,
+             reference_number
+      FROM purchase_orders 
+      WHERE order_number = $1 OR reference_number = $1
+      LIMIT 1
+    `, [reference]);
+
+    if (purchaseOrderResult.rows.length > 0) {
+      const transaction = purchaseOrderResult.rows[0];
+      
+      // Get company details
+      const companyResult = await pool.query('SELECT name FROM companies WHERE id = $1', [transaction.company_id]);
+      const vendorResult = await pool.query('SELECT name FROM companies WHERE id = $1', [transaction.vendor_id]);
+      
+      return res.json({
+        success: true,
+        transaction: {
+          ...transaction,
+          companyName: companyResult.rows[0]?.name,
+          vendorName: vendorResult.rows[0]?.name
         }
       });
     }
@@ -718,176 +1110,220 @@ app.get('/api/bills/summary', async (req, res) => {
       return res.status(400).json({ error: 'companyId is required' });
     }
 
-    // AP Summary with complete purchase order → bill → payment tracking and vendor details
-    const apSummary = await pool.query(`
-      SELECT 
-        -- Purchase Orders
-        COUNT(DISTINCT po.id) as total_purchase_orders,
-        COALESCE(SUM(DISTINCT po.total), 0) as purchase_orders_total,
-        
-        -- Bills (linked and unlinked)
-        COUNT(DISTINCT b.id) as total_bills,
-        COALESCE(SUM(DISTINCT b.total), 0) as bills_total,
-        COUNT(DISTINCT CASE WHEN b.purchase_order_id IS NOT NULL THEN b.id END) as bills_from_purchase_orders,
-        
-        -- Bill Payments
-        COUNT(DISTINCT bp.id) as total_bill_payments,
-        COALESCE(SUM(DISTINCT bp.amount), 0) as payments_total,
-        COUNT(DISTINCT CASE WHEN bp.bill_id IS NOT NULL THEN bp.id END) as payments_linked_to_bills,
-        
-        -- Intercompany vs External
-        COUNT(DISTINCT CASE WHEN v.id IS NOT NULL THEN po.id END) as intercompany_purchase_orders,
-        COUNT(DISTINCT CASE WHEN v.id IS NULL THEN po.id END) as external_purchase_orders
-        
-      FROM purchase_orders po
-      FULL OUTER JOIN bills b ON po.id = b.purchase_order_id AND b.company_id = $1
-      FULL OUTER JOIN bill_payments bp ON b.id = bp.bill_id AND bp.company_id = $1
-      LEFT JOIN companies v ON po.vendor_id = v.id
-      WHERE po.company_id = $1 OR b.company_id = $1 OR bp.company_id = $1
+    // Get company information
+    const companyResult = await pool.query(`
+      SELECT name FROM companies WHERE id = $1
     `, [companyId]);
 
-    // Get detailed AP breakdown with vendor information
-    const apDetails = await pool.query(`
+    // Get purchase order summary data
+    const summaryResult = await pool.query(`
       SELECT 
-        v.name as vendor_name,
-        v.id as vendor_id,
-        CASE WHEN v.id IS NOT NULL THEN 'Intercompany' ELSE 'External' END as relationship_type,
-        COUNT(DISTINCT po.id) as purchase_orders_count,
-        COALESCE(SUM(DISTINCT po.total), 0) as purchase_orders_total,
-        COUNT(DISTINCT b.id) as bills_count,
-        COALESCE(SUM(DISTINCT b.total), 0) as bills_total,
-        COUNT(DISTINCT bp.id) as payments_count,
-        COALESCE(SUM(DISTINCT bp.amount), 0) as payments_total,
-        COALESCE(SUM(DISTINCT b.total), 0) - COALESCE(SUM(DISTINCT bp.amount), 0) as outstanding_amount
+        COUNT(DISTINCT po.id) as total_orders,
+        COALESCE(SUM(po.total), 0) as total_order_value,
+        COUNT(DISTINCT CASE WHEN b.id IS NOT NULL THEN po.id END) as orders_with_bills,
+        COALESCE(SUM(DISTINCT b.total), 0) as total_billed,
+        COALESCE(SUM(DISTINCT bp.amount), 0) as total_paid
       FROM purchase_orders po
       LEFT JOIN bills b ON po.id = b.purchase_order_id
       LEFT JOIN bill_payments bp ON b.id = bp.bill_id
-      LEFT JOIN companies v ON po.vendor_id = v.id
       WHERE po.company_id = $1
-      GROUP BY v.id, v.name
-      HAVING COUNT(DISTINCT po.id) > 0
-      ORDER BY outstanding_amount DESC
-      LIMIT 10
     `, [companyId]);
 
-    const result = apSummary.rows[0];
-    const outstandingAP = parseFloat(result.bills_total) - parseFloat(result.payments_total);
-
-    // Get detailed purchase order breakdown with bill and payment counts
-    const purchaseOrderDetails = await pool.query(`
+    // Get detailed purchase orders with bills and payments
+    const purchaseOrdersResult = await pool.query(`
       SELECT 
-        po.id as purchase_order_id,
+        po.id as order_id,
         po.order_number,
-        po.total as purchase_order_total,
-        po.reference_number,
         po.order_date,
+        po.total as order_total,
         po.status,
-        v.name as vendor_name,
-        v.id as vendor_id,
-        COUNT(DISTINCT b.id) as bill_count,
-        COALESCE(SUM(DISTINCT b.total), 0) as bills_total,
-        COUNT(DISTINCT bp.id) as payment_count,
-        COALESCE(SUM(DISTINCT bp.amount), 0) as payments_total,
-        (COALESCE(SUM(DISTINCT b.total), 0) - COALESCE(SUM(DISTINCT bp.amount), 0)) as outstanding_amount
+        c.name as vendor_name,
+        b.id as bill_id,
+        b.bill_number,
+        b.bill_date,
+        b.total as bill_total,
+        b.status as bill_status
       FROM purchase_orders po
-      LEFT JOIN companies v ON po.vendor_id = v.id
+      LEFT JOIN companies c ON po.vendor_id = c.id
       LEFT JOIN bills b ON po.id = b.purchase_order_id
-      LEFT JOIN bill_payments bp ON b.id = bp.bill_id
       WHERE po.company_id = $1
-      GROUP BY po.id, po.order_number, po.total, po.reference_number, po.order_date, po.status, v.name, v.id
       ORDER BY po.order_date DESC
-      LIMIT 20
+      LIMIT 50
     `, [companyId]);
 
-    res.json({
-      // Enhanced Purchase Order → Purchase Bill → Purchase Payment Workflow
-      purchaseOrderWorkflow: {
-        totalPurchaseOrders: result.total_purchase_orders.toString(),
-        totalPurchaseOrderAmount: parseFloat(result.purchase_orders_total).toFixed(2),
-        totalPurchaseBills: result.total_bills.toString(),
-        totalPurchaseBillAmount: parseFloat(result.bills_total).toFixed(2),
-        totalPurchasePayments: result.total_bill_payments.toString(),
-        totalPurchasePaymentAmount: parseFloat(result.payments_total).toFixed(2),
-        outstandingPayables: outstandingAP.toFixed(2)
-      },
+    // Get purchase order items
+    const orderItemsResult = await pool.query(`
+      SELECT 
+        poi.purchase_order_id,
+        poi.product_id,
+        p.code as product_code,
+        p.name as product_name,
+        poi.quantity,
+        poi.unit_price,
+        poi.amount
+      FROM purchase_order_items poi
+      LEFT JOIN products p ON poi.product_id = p.id
+      WHERE poi.purchase_order_id IN (
+        SELECT id FROM purchase_orders WHERE company_id = $1
+      )
+    `, [companyId]);
 
-      // Detailed purchase order breakdown showing bills and payments for each order
-      purchaseOrderDetails: purchaseOrderDetails.rows.map(row => ({
-        purchaseOrderId: row.purchase_order_id,
-        orderNumber: row.order_number,
-        referenceNumber: row.reference_number,
-        orderDate: row.order_date,
-        status: row.status,
-        purchaseOrderTotal: parseFloat(row.purchase_order_total).toFixed(2),
-        vendor: {
-          id: row.vendor_id,
-          name: row.vendor_name || 'External Vendor',
-          type: row.vendor_id ? 'Intercompany' : 'External'
-        },
-        bills: {
-          count: parseInt(row.bill_count),
-          totalAmount: parseFloat(row.bills_total).toFixed(2)
-        },
-        payments: {
-          count: parseInt(row.payment_count),
-          totalAmount: parseFloat(row.payments_total).toFixed(2)
-        },
-        outstandingAmount: parseFloat(row.outstanding_amount).toFixed(2),
-        workflowStatus: `${row.bill_count} bills, ${row.payment_count} payments`
-      })),
-      
-      // Summary statistics
-      workflowStatistics: {
-        purchaseOrdersWithBills: result.bills_from_purchase_orders.toString(),
-        purchaseOrdersWithoutBills: (parseInt(result.total_purchase_orders) - parseInt(result.bills_from_purchase_orders)).toString(),
-        billsWithPayments: result.payments_linked_to_bills.toString(),
-        billsWithoutPayments: (parseInt(result.total_bills) - parseInt(result.payments_linked_to_bills)).toString(),
-        intercompanyPurchaseOrders: result.intercompany_purchase_orders.toString(),
-        externalPurchaseOrders: result.external_purchase_orders.toString()
-      },
-      
-      // Legacy format for backward compatibility
-      totalPurchaseOrders: result.total_purchase_orders.toString(),
-      purchaseOrdersTotal: parseFloat(result.purchase_orders_total).toFixed(2),
-      intercompanyPurchaseOrders: result.intercompany_purchase_orders.toString(),
-      externalPurchaseOrders: result.external_purchase_orders.toString(),
-      totalBills: result.total_bills.toString(),
-      billsTotal: parseFloat(result.bills_total).toFixed(2),
-      billsFromPurchaseOrders: result.bills_from_purchase_orders.toString(),
-      totalBillPayments: result.total_bill_payments.toString(),
-      paymentsTotal: parseFloat(result.payments_total).toFixed(2),
-      paymentsLinkedToBills: result.payments_linked_to_bills.toString(),
-      outstandingPayables: outstandingAP.toFixed(2),
-      
-      // Vendor/Intercompany Details
-      vendorBreakdown: apDetails.rows.map(row => ({
-        vendorName: row.vendor_name || 'External Vendor',
-        vendorId: row.vendor_id,
-        relationshipType: row.relationship_type,
-        purchaseOrders: {
-          count: row.purchase_orders_count.toString(),
-          total: parseFloat(row.purchase_orders_total).toFixed(2)
-        },
-        bills: {
-          count: row.bills_count.toString(),
-          total: parseFloat(row.bills_total).toFixed(2)
-        },
-        payments: {
-          count: row.payments_count.toString(),
-          total: parseFloat(row.payments_total).toFixed(2)
-        },
-        outstandingAmount: parseFloat(row.outstanding_amount).toFixed(2)
-      })),
-      
-      // Legacy format for compatibility
-      totalbills: result.total_bills.toString(),
-      totalamount: parseFloat(result.bills_total).toFixed(2),
-      paidbills: result.total_bill_payments.toString(),
-      paidamount: parseFloat(result.payments_total).toFixed(2)
+    // Get bill items
+    const billItemsResult = await pool.query(`
+      SELECT 
+        bi.bill_id,
+        bi.product_id,
+        p.code as product_code,
+        p.name as product_name,
+        bi.quantity,
+        bi.unit_price,
+        bi.amount
+      FROM bill_items bi
+      LEFT JOIN products p ON bi.product_id = p.id
+      WHERE bi.bill_id IN (
+        SELECT b.id FROM bills b 
+        INNER JOIN purchase_orders po ON b.purchase_order_id = po.id
+        WHERE po.company_id = $1
+      )
+    `, [companyId]);
+
+    // Get payment details
+    const paymentsResult = await pool.query(`
+      SELECT 
+        bp.id as payment_id,
+        bp.payment_number,
+        bp.amount,
+        bp.payment_date,
+        bp.payment_method,
+        bp.bill_id
+      FROM bill_payments bp
+      INNER JOIN bills b ON bp.bill_id = b.id
+      INNER JOIN purchase_orders po ON b.purchase_order_id = po.id
+      WHERE po.company_id = $1
+    `, [companyId]);
+
+
+
+    // Process the data into the required structure
+    const summary = summaryResult.rows[0];
+    const pendingBillValue = parseFloat(summary.total_order_value) - parseFloat(summary.total_billed);
+    const pendingPaymentValue = parseFloat(summary.total_billed) - parseFloat(summary.total_paid);
+
+    // Group items by order and bill
+    const orderItemsMap = {};
+    orderItemsResult.rows.forEach(item => {
+      if (!orderItemsMap[item.purchase_order_id]) {
+        orderItemsMap[item.purchase_order_id] = [];
+      }
+      orderItemsMap[item.purchase_order_id].push({
+        ProductId: item.product_id,
+        ProductCode: item.product_code || '',
+        ProductName: item.product_name || '',
+        Quantity: parseInt(item.quantity),
+        UnitPrice: parseFloat(item.unit_price),
+        Amount: parseFloat(item.amount)
+      });
     });
+
+    const billItemsMap = {};
+    billItemsResult.rows.forEach(item => {
+      if (!billItemsMap[item.bill_id]) {
+        billItemsMap[item.bill_id] = [];
+      }
+      billItemsMap[item.bill_id].push({
+        ProductId: item.product_id,
+        ProductCode: item.product_code || '',
+        ProductName: item.product_name || '',
+        Quantity: parseInt(item.quantity),
+        UnitPrice: parseFloat(item.unit_price),
+        Amount: parseFloat(item.amount)
+      });
+    });
+
+    const paymentsMap = {};
+    paymentsResult.rows.forEach(payment => {
+      const billId = String(payment.bill_id); // Ensure string key for consistent mapping
+      if (!paymentsMap[billId]) {
+        paymentsMap[billId] = [];
+      }
+      paymentsMap[billId].push({
+        PaymentId: payment.payment_id,
+        PaymentNumber: payment.payment_number || '',
+        Amount: parseFloat(payment.amount),
+        PaymentDate: payment.payment_date,
+        PaymentMethod: payment.payment_method || ''
+      });
+    });
+
+
+
+    // Build purchase orders array
+    const purchaseOrdersMap = {};
+    const billIdsInPurchaseOrders = [];
+    purchaseOrdersResult.rows.forEach(row => {
+      if (row.bill_id) {
+        billIdsInPurchaseOrders.push(row.bill_id);
+      }
+      
+      if (!purchaseOrdersMap[row.order_id]) {
+        purchaseOrdersMap[row.order_id] = {
+          OrderId: row.order_id,
+          OrderNumber: row.order_number || '',
+          OrderDate: row.order_date,
+          VendorName: row.vendor_name || 'External Vendor',
+          OrderTotal: parseFloat(row.order_total),
+          Status: row.status || '',
+          OrderItems: orderItemsMap[row.order_id] || [],
+          BillDetails: null,
+          PaymentDetails: [],
+          WorkflowStatus: ''
+        };
+      }
+
+      if (row.bill_id) {
+        purchaseOrdersMap[row.order_id].BillDetails = {
+          BillId: row.bill_id,
+          BillNumber: row.bill_number || '',
+          BillDate: row.bill_date,
+          BillTotal: parseFloat(row.bill_total || 0),
+          Status: row.bill_status || '',
+          BillItems: billItemsMap[row.bill_id] || []
+        };
+        
+        const billIdKey = String(row.bill_id); // Ensure consistent string key lookup
+        const payments = paymentsMap[billIdKey] || [];
+        purchaseOrdersMap[row.order_id].PaymentDetails = payments;
+      }
+
+      // Set workflow status
+      const billCount = row.bill_id ? 1 : 0;
+      const billIdKey = String(row.bill_id); // Use same string key as payment mapping
+      const paymentCount = paymentsMap[billIdKey] ? paymentsMap[billIdKey].length : 0;
+      purchaseOrdersMap[row.order_id].WorkflowStatus = `${billCount} bills, ${paymentCount} payments`;
+    });
+
+
+
+    const response = {
+      CompanyId: parseInt(companyId),
+      CompanyName: companyResult.rows[0]?.name || 'Unknown Company',
+      ReportDate: new Date().toISOString().split('T')[0],
+      Summary: {
+        TotalOrders: parseInt(summary.total_orders),
+        TotalOrderValue: parseFloat(summary.total_order_value),
+        OrdersWithBills: parseInt(summary.orders_with_bills),
+        TotalBilled: parseFloat(summary.total_billed),
+        TotalPaid: parseFloat(summary.total_paid),
+        PendingBillValue: pendingBillValue,
+        PendingPaymentValue: pendingPaymentValue
+      },
+      PurchaseOrders: Object.values(purchaseOrdersMap)
+    };
+
+    res.json(response);
   } catch (error) {
-    console.error('Error fetching AP summary:', error);
-    res.status(500).json({ error: 'Failed to fetch AP summary' });
+    console.error('Error fetching bills summary:', error);
+    res.status(500).json({ error: 'Failed to fetch bills summary' });
   }
 });
 
@@ -930,13 +1366,13 @@ app.get('/api/transaction-group/:reference', async (req, res) => {
       ORDER BY i.created_at DESC
     `, [reference]);
 
-    // Get all bills related to these purchase orders
+    // Get all bills related to these purchase orders or by direct reference/bill number
     const bills = await pool.query(`
       SELECT b.*, po.order_number as purchase_order_number, c.name as company_name
       FROM bills b
       LEFT JOIN purchase_orders po ON b.purchase_order_id = po.id
       LEFT JOIN companies c ON b.company_id = c.id
-      WHERE po.reference_number = $1
+      WHERE b.reference_number = $1 OR b.bill_number = $1 OR po.reference_number = $1
       ORDER BY b.created_at DESC
     `, [reference]);
 
@@ -947,7 +1383,7 @@ app.get('/api/transaction-group/:reference', async (req, res) => {
       LEFT JOIN invoices i ON r.invoice_id = i.id
       LEFT JOIN sales_orders so ON i.sales_order_id = so.id
       LEFT JOIN companies c ON r.company_id = c.id
-      WHERE so.reference_number = $1
+      WHERE r.reference_number = $1
       ORDER BY r.created_at DESC
     `, [reference]);
 
@@ -958,7 +1394,7 @@ app.get('/api/transaction-group/:reference', async (req, res) => {
       LEFT JOIN bills b ON bp.bill_id = b.id
       LEFT JOIN purchase_orders po ON b.purchase_order_id = po.id
       LEFT JOIN companies c ON bp.company_id = c.id
-      WHERE po.reference_number = $1
+      WHERE bp.reference_number = $1
       ORDER BY bp.created_at DESC
     `, [reference]);
 
