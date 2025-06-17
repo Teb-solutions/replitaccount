@@ -3,25 +3,105 @@
  * All required endpoints with authentic data from external database
  */
 
+// Initialize simplified Application Insights without OpenTelemetry dependencies
+let appInsights = null;
+let telemetryClient = null;
+
+
+//const logger = require('./logger');
+
+//const { trace } = require('@opentelemetry/api');
+
+require('./Tracing');
+
+// anywhere in your app (e.g., routes, services, etc.)
+const { trackCustomTrace } = require('./tracing-helper');
+
+
+//const { trace } = require('@opentelemetry/api');
+
+//const tracer = trace.getTracer('accounting ar ap');
+
+function doSomething() {
+  const span = tracer.startSpan('accounting');
+  // do work...
+  span.setAttribute('key', 'value');
+  span.end();
+}
+
+const { trace, context } = require('@opentelemetry/api');
+
+const tracer = trace.getTracer('manual-logger');
+
+// Patch console.log
+const originalLog = console.log;
+
+console.log = (...args) => {
+  const message = args.map(String).join(" ");
+  
+  const span = tracer.startSpan('console.log');
+  span.addEvent(message);
+  span.end();
+
+  originalLog.apply(console, args);
+};
+
+
+if (process.env.NODE_ENV == 'production') {
+  try {
+    // Use basic HTTP client for Azure Application Insights
+    const https = require('https');
+    var connectionString = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING || 
+      'InstrumentationKey=e04a0cf1-8129-4bc2-8707-016ae726c876;IngestionEndpoint=https://southindia-0.in.applicationinsights.azure.com/;LiveEndpoint=https://southindia.livediagnostics.monitor.azure.com/;ApplicationId=da90193a-e50f-4283-b108-3450666ada97';
+    
+	connectionString = 'InstrumentationKey=e04a0cf1-8129-4bc2-8707-016ae726c876;IngestionEndpoint=https://southindia-0.in.applicationinsights.azure.com/';
+    // Parse connection string
+    parts = connectionString.split(';');
+    var config = {};
+    parts.forEach(part => {
+      const [key, value] = part.split('=');
+      if (key && value) config[key] = value;
+    });
+    
+	config.InstrumentationKey = 'e04a0cf1-8129-4bc2-8707-016ae726c876';
+	
+	console.log (config.InstrumentationKey);
+	
+   
+    //appInsights = require('applicationinsights');
+
+		// Enable verbose internal logging to help debug telemetry issues
+		process.env.APPLICATIONINSIGHTS_LOGGING_LEVEL = "verbose";
+
+		 //Initialize Application Insights
+		//appInsights.setup(connectionString)
+					//.setAutoCollectConsole(true)
+					//.setAutoCollectExceptions(true)
+					//.setAutoCollectPerformance(true)
+					//.setSendLiveMetrics(true)
+					//.start();;
+
+		 telemetryClient = appInsights.defaultClient;
+		
+  
+
+    console.log('Simplified Application Insights telemetry initialized');
+    console.log('Using South India endpoints for telemetry transmission');
+  } catch (error) {
+    console.warn('Application Insights initialization failed:', error.message);
+    console.log('Continuing with console logging only');
+    telemetryClient = null;
+  }
+}
+
+
+
+
+
+// Now load other modules
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
-const appInsights = require('applicationinsights');
-
-// Initialize Application Insights
-const APPINSIGHTS_INSTRUMENTATIONKEY = 'e04a0cf1-8129-4bc2-8707-016ae726c876';
-
-if (process.env.NODE_ENV === 'production') {
-  appInsights.setup(APPINSIGHTS_INSTRUMENTATIONKEY)
-    .setAutoCollectRequests(true)
-    .setAutoCollectPerformance(true, true)
-    .setAutoCollectExceptions(true)
-    .setAutoCollectDependencies(true)
-    .setAutoCollectConsole(true, true)
-    .setUseDiskRetryCaching(true)
-    .setSendLiveMetrics(true)
-    .start();
-}
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -50,6 +130,17 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
+
+
+app.get('/', (req, res) => {
+  res.send('Hello with tracing!');
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on PORT ${PORT}`);
+});
+
+
 // Application Insights Logger with Microsoft Azure Integration
 function logWithApplicationInsights(level, message, requestId = null) {
   const timestamp = new Date();
@@ -58,59 +149,49 @@ function logWithApplicationInsights(level, message, requestId = null) {
   const reqId = requestId || `req-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   
   const formattedMessage = `[${formattedTime} ${levelFormatted}] [${reqId}] ${message}`;
+   telemetryClient.trackTrace(formattedMessage);
+   trackCustomTrace(formattedMessage);
+   console.log("telemetryclient done");
   
-  // Always log to console for debugging
-  console.log(formattedMessage);
+ 
+  //console.log(formattedMessage);
+  //logger.log(formattedMessage);
   
-  // Send to Microsoft Application Insights in production
-  if (process.env.NODE_ENV === 'production' && appInsights.defaultClient) {
+			// Patch console.log
+	const originalLog = console.log;
+	console.log = function (...args) {
+	  const message = args.map(String).join(" ");
+	  if (telemetryClient)
+	  telemetryClient.trackTrace({
+		message,
+		severity: appInsights.Contracts.SeverityLevel.Information
+	  });
+	  originalLog.apply(console, args);
+	};
+
+	// Always log to console for debugging
+	  console.log(formattedMessage);
+  
+  // Send to Azure Application Insights using simplified telemetry
+  if (process.env.NODE_ENV === 'production' && telemetryClient) {
     const properties = {
       requestId: reqId,
       timestamp: timestamp.toISOString(),
       level: level.toUpperCase(),
       originalMessage: message,
       service: 'multi-company-accounting',
-      version: '1.0.0'
-    };
-    
-    const customDimensions = {
-      ...properties,
+      version: '1.0.0',
       environment: process.env.NODE_ENV || 'production',
       server: 'external-db-135.235.154.222'
     };
     
     try {
-      switch (level.toUpperCase()) {
-        case 'ERR':
-          appInsights.defaultClient.trackException({ 
-            exception: new Error(message), 
-            properties: customDimensions,
-            measurements: { timestamp: Date.now() }
-          });
-          break;
-        case 'WRN':
-          appInsights.defaultClient.trackTrace(
-            formattedMessage, 
-            appInsights.Contracts.SeverityLevel.Warning, 
-            customDimensions
-          );
-          break;
-        case 'INF':
-        default:
-          appInsights.defaultClient.trackTrace(
-            formattedMessage, 
-            appInsights.Contracts.SeverityLevel.Information, 
-            customDimensions
-          );
-          break;
-      }
-      
-      // Force flush in production for immediate delivery
-      if (process.env.NODE_ENV === 'production') {
-        appInsights.defaultClient.flush();
-      }
-    } catch (appInsightsError) {
-      console.error('Application Insights logging error:', appInsightsError.message);
+	  
+      telemetryClient.trackTrace(formattedMessage, properties);
+	  //console.log(telemetryError);
+    } catch (telemetryError) {
+      // Silently continue on telemetry errors
+	 // console.log(telemetryError);
     }
   }
 }

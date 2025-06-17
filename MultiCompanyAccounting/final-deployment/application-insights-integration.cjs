@@ -4,7 +4,7 @@
  */
 
 const fs = require('fs');
-const path = './final-deployment/server.cjs';
+const path = 'server.cjs';
 
 // Read the current server file
 let content = fs.readFileSync(path, 'utf8');
@@ -24,7 +24,7 @@ function logWithApplicationInsights(level, message, requestId = null) {
 }`;
 
 const newFunction = `// Application Insights Logger with Microsoft Azure Integration
-function logWithApplicationInsights(level, message, requestId = null) {
+function logWithApplicationInsights1(level, message, requestId = null) {
   const timestamp = new Date();
   const formattedTime = timestamp.toTimeString().split(' ')[0]; // HH:mm:ss format
   const levelFormatted = level.toUpperCase().padEnd(3);
@@ -32,8 +32,14 @@ function logWithApplicationInsights(level, message, requestId = null) {
   
   const formattedMessage = \`[\${formattedTime} \${levelFormatted}] [\${reqId}] \${message}\`;
   
+  appInsights.defaultClient.trackTrace(formattedMessage);
+  
   // Always log to console for debugging
   console.log(formattedMessage);
+  
+  console.log(formattedMessage);
+  
+  
   
   // Send to Microsoft Application Insights in production
   if (process.env.NODE_ENV === 'production' && appInsights.defaultClient) {
