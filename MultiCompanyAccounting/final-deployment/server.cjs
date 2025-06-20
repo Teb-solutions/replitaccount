@@ -149,7 +149,7 @@ function logWithApplicationInsights(level, message, requestId = null) {
   const reqId = requestId || `req-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   
   const formattedMessage = `[${formattedTime} ${levelFormatted}] [${reqId}] ${message}`;
-   telemetryClient.trackTrace(formattedMessage);
+   //telemetryClient.trackTrace(formattedMessage);
    trackCustomTrace(formattedMessage);
    console.log("telemetryclient done");
   
@@ -372,11 +372,11 @@ app.post('/api/intercompany/sales-order', async (req, res) => {
       RETURNING id, order_number, total, status, reference_number
     `, [sourceCompanyId, targetCompanyId, orderNumber, 'Pending', finalTotal, transactionGroupRef]);
 
-    // Save products to sales_order_line_items table if products array provided
+    // Save products to sales_order_items table if products array provided
     if (products && products.length > 0) {
       for (const product of products) {
         await client.query(`
-          INSERT INTO sales_order_line_items (
+          INSERT INTO sales_order_items (
             sales_order_id, product_id, quantity, unit_price, total_amount, description
           ) VALUES ($1, $2, $3, $4, $5, $6)
         `, [
@@ -401,11 +401,11 @@ app.post('/api/intercompany/sales-order', async (req, res) => {
       RETURNING id, order_number, total, status, reference_number
     `, [targetCompanyId, sourceCompanyId, poNumber, 'Pending', finalTotal, transactionGroupRef]);
 
-    // Save products to purchase_order_line_items table if products array provided
+    // Save products to purchase_order_items table if products array provided
     if (products && products.length > 0) {
       for (const product of products) {
         await client.query(`
-          INSERT INTO purchase_order_line_items (
+          INSERT INTO purchase_order_items (
             purchase_order_id, product_id, quantity, unit_price, total_amount, description
           ) VALUES ($1, $2, $3, $4, $5, $6)
         `, [
@@ -488,7 +488,7 @@ app.get('/api/sales-orders/:id/products', async (req, res) => {
         p.description as product_description,
         p.sales_price as product_sales_price
       FROM sales_orders so
-      LEFT JOIN sales_order_line_items soi ON so.id = soi.sales_order_id
+      LEFT JOIN sales_order_items soi ON so.id = soi.sales_order_id
       LEFT JOIN products p ON soi.product_id = p.id
       LEFT JOIN companies c ON so.company_id = c.id
       LEFT JOIN companies cust ON so.customer_id = cust.id
@@ -1126,7 +1126,7 @@ app.get('/api/sales-orders', async (req, res) => {
         ) FILTER (WHERE soli.id IS NOT NULL) as line_items
       FROM sales_orders so
       LEFT JOIN companies c ON so.customer_id = c.id
-      LEFT JOIN sales_order_line_items soli ON so.id = soli.sales_order_id
+      LEFT JOIN sales_order_items soli ON so.id = soli.sales_order_id
       LEFT JOIN products p ON soli.product_id = p.id
       WHERE so.company_id = $1
       GROUP BY so.id, c.name
@@ -1179,7 +1179,7 @@ app.get('/api/invoices/summary', async (req, res) => {
         COUNT(DISTINCT CASE WHEN r.invoice_id IS NOT NULL THEN r.id END) as receipts_linked_to_invoices,
         
         -- Credit notes impact
-        COALESCE(SUM(DISTINCT cn.amount), 0) as credit_notes_total
+        COALESCE(SUM(DISTINCT cn.total), 0) as credit_notes_total
         
       FROM sales_orders so
       LEFT JOIN invoices i ON so.id = i.sales_order_id
@@ -1207,7 +1207,7 @@ app.get('/api/invoices/summary', async (req, res) => {
         i.total as "InvoiceAmount"
       FROM sales_orders so
       LEFT JOIN companies cust ON so.customer_id = cust.id
-      LEFT JOIN sales_order_line_items soli ON so.id = soli.sales_order_id
+      LEFT JOIN sales_order_items soli ON so.id = soli.sales_order_id
       LEFT JOIN invoices i ON so.id = i.sales_order_id
       WHERE so.company_id = $1
       GROUP BY so.id, so.order_number, so.reference_number, so.order_date, 
@@ -1264,6 +1264,9 @@ app.get('/api/invoices/summary', async (req, res) => {
                                    (parseFloat(summary.receipts_total) || 0) - 
                                    (parseFloat(summary.credit_notes_total) || 0);
 
+     const creditnotesum =      (parseFloat(summary.credit_notes_total) || 0);
+
+
     // Build response matching C# SalesData structure
     const salesData = {
       SalesOrderWorkflow: {
@@ -1313,6 +1316,7 @@ app.get('/api/invoices/summary', async (req, res) => {
       ReceiptsTotal: parseFloat(summary.receipts_total) || 0,
       ReceiptsLinkedToInvoices: parseInt(summary.receipts_linked_to_invoices) || 0,
       OutstandingReceivables: outstandingReceivables,
+      Creditnotesum : creditnotesum,
       CustomerBreakdown: customers.map(customer => ({
         CustomerName: customer.CustomerName,
         SalesOrderCount: parseInt(customer.SalesOrderCount) || 0,
@@ -1366,10 +1370,10 @@ app.get('/api/bills/summary', async (req, res) => {
         COALESCE(SUM(DISTINCT p.amount), 0) as total_paid,
         COALESCE(SUM(DISTINCT CASE WHEN b.id IS NOT NULL AND p.id IS NULL THEN b.total ELSE 0 END), 0) as pending_bill_value,
         COALESCE(SUM(DISTINCT CASE WHEN b.id IS NOT NULL THEN b.total ELSE 0 END) - SUM(DISTINCT CASE WHEN p.id IS NOT NULL THEN p.amount ELSE 0 END), 0) as pending_payment_value,
-        COALESCE(SUM(DISTINCT dn.amount), 0) as debit_notes_total
+        COALESCE(SUM(DISTINCT dn.total), 0) as debit_notes_total
       FROM purchase_orders po
       LEFT JOIN bills b ON po.id = b.purchase_order_id
-      LEFT JOIN payments p ON b.id = p.bill_id
+      LEFT JOIN bill_payments p ON b.id = p.bill_id
       LEFT JOIN debit_notes dn ON dn.company_id = $1
       WHERE po.company_id = $1
     `, [companyId]);
@@ -1402,7 +1406,7 @@ app.get('/api/bills/summary', async (req, res) => {
       FROM purchase_orders po
       LEFT JOIN companies v ON po.vendor_id = v.id
       LEFT JOIN bills b ON po.id = b.purchase_order_id
-      LEFT JOIN payments p ON b.id = p.bill_id
+      LEFT JOIN bill_payments p ON b.id = p.bill_id
       WHERE po.company_id = $1
       ORDER BY po.created_at DESC
       LIMIT 50
@@ -1416,9 +1420,9 @@ app.get('/api/bills/summary', async (req, res) => {
         pr.name as product_name,
         poli.quantity,
         poli.unit_price,
-        poli.total_amount,
+        poli.amount,
         poli.description
-      FROM purchase_order_line_items poli
+      FROM purchase_order_items poli
       LEFT JOIN products pr ON poli.product_id = pr.id
       WHERE poli.purchase_order_id IN (
         SELECT id FROM purchase_orders WHERE company_id = $1
@@ -1433,9 +1437,9 @@ app.get('/api/bills/summary', async (req, res) => {
         pr.name as product_name,
         bi.quantity,
         bi.unit_price,
-        bi.total_amount,
+        bi.amount,
         bi.description
-      FROM bill_line_items bi
+      FROM bill_items bi
       LEFT JOIN products pr ON bi.product_id = pr.id
       WHERE bi.bill_id IN (
         SELECT b.id FROM bills b 
@@ -1530,102 +1534,12 @@ app.get('/api/bills/summary', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch bill summary' });
   }
 });
-        ProductCode: item.product_code || '',
-        ProductName: item.product_name || '',
-        Quantity: parseInt(item.quantity),
-        UnitPrice: parseFloat(item.unit_price),
-        Amount: parseFloat(item.amount)
-      });
-    });
-
-    const paymentsMap = {};
-    paymentsResult.rows.forEach(payment => {
-      const billId = String(payment.bill_id); // Ensure string key for consistent mapping
-      if (!paymentsMap[billId]) {
-        paymentsMap[billId] = [];
-      }
-      paymentsMap[billId].push({
-        PaymentId: payment.payment_id,
-        PaymentNumber: payment.payment_number || '',
-        Amount: parseFloat(payment.amount),
-        PaymentDate: payment.payment_date,
-        PaymentMethod: payment.payment_method || ''
-      });
-    });
+ 
 
 
 
-    // Build purchase orders array
-    const purchaseOrdersMap = {};
-    const billIdsInPurchaseOrders = [];
-    purchaseOrdersResult.rows.forEach(row => {
-      if (row.bill_id) {
-        billIdsInPurchaseOrders.push(row.bill_id);
-      }
-      
-      if (!purchaseOrdersMap[row.order_id]) {
-        purchaseOrdersMap[row.order_id] = {
-          OrderId: row.order_id,
-          OrderNumber: row.order_number || '',
-          OrderDate: row.order_date,
-          VendorName: row.vendor_name || 'External Vendor',
-          OrderTotal: parseFloat(row.order_total),
-          Status: row.status || '',
-          OrderItems: orderItemsMap[row.order_id] || [],
-          BillDetails: null,
-          PaymentDetails: [],
-          WorkflowStatus: ''
-        };
-      }
 
-      if (row.bill_id) {
-        purchaseOrdersMap[row.order_id].BillDetails = {
-          BillId: row.bill_id,
-          BillNumber: row.bill_number || '',
-          BillDate: row.bill_date,
-          BillTotal: parseFloat(row.bill_total || 0),
-          Status: row.bill_status || '',
-          BillItems: billItemsMap[row.bill_id] || []
-        };
-        
-        const billIdKey = String(row.bill_id); // Ensure consistent string key lookup
-        const payments = paymentsMap[billIdKey] || [];
-        purchaseOrdersMap[row.order_id].PaymentDetails = payments;
-      }
-
-      // Set workflow status
-      const billCount = row.bill_id ? 1 : 0;
-      const billIdKey = String(row.bill_id); // Use same string key as payment mapping
-      const paymentCount = paymentsMap[billIdKey] ? paymentsMap[billIdKey].length : 0;
-      purchaseOrdersMap[row.order_id].WorkflowStatus = `${billCount} bills, ${paymentCount} payments`;
-    });
-
-
-
-    const response = {
-      CompanyId: parseInt(companyId),
-      CompanyName: companyResult.rows[0]?.name || 'Unknown Company',
-      ReportDate: new Date().toISOString().split('T')[0],
-      Summary: {
-        TotalOrders: parseInt(summary.total_orders),
-        TotalOrderValue: parseFloat(summary.total_order_value),
-        OrdersWithBills: parseInt(summary.orders_with_bills),
-        TotalBilled: parseFloat(summary.total_billed),
-        TotalPaid: parseFloat(summary.total_paid),
-        TotalDebitNotes: parseInt(summary.total_debit_notes),
-        TotalDebitNotesAmount: parseFloat(summary.debit_notes_total),
-        PendingBillValue: pendingBillValue,
-        PendingPaymentValue: pendingPaymentValue
-      },
-      PurchaseOrders: Object.values(purchaseOrdersMap)
-    };
-
-    res.json(response);
-  } catch (error) {
-    logWithApplicationInsights('ERR', 'Error fetching bills summary: ' + error.message, requestId);
-    res.status(500).json({ error: 'Failed to fetch bills summary' });
-  }
-});
+    
 
 // New endpoint to track all related transactions by transaction group reference
 app.get('/api/transaction-group/:reference', async (req, res) => {
@@ -1904,6 +1818,7 @@ app.get('/api/companies/ar-ap-summary', async (req, res) => {
 // ====================================================================
 
 // Application Insights Logger with specified format
+/*
 function logWithApplicationInsights(level, message, requestId = null) {
   const timestamp = new Date();
   const formattedTime = timestamp.toTimeString().split(' ')[0]; // HH:mm:ss format
@@ -1915,6 +1830,7 @@ function logWithApplicationInsights(level, message, requestId = null) {
   // Application Insights ID: e04a0cf1-8129-4bc2-8707-016ae726c876
   // In production, this would send to Application Insights service
 }
+*/
 
 // Database Setup API for Credit/Debit Notes
 app.post('/api/setup-database', async (req, res) => {
@@ -2181,7 +2097,7 @@ app.post('/api/intercompany/adjustment', async (req, res) => {
 
         // Get purchase order line items to append products
         const purchaseOrderLines = await pool.query(`
-          SELECT * FROM purchase_order_line_items WHERE purchase_order_id = $1
+          SELECT * FROM purchase_order_items WHERE purchase_order_id = $1
         `, [purchaseOrder.id]);
 
         logWithApplicationInsights('INFO', `Added ${products.length} product line items to debit note and purchase order`, requestId);
@@ -2530,9 +2446,9 @@ app.delete('/api/products/:id', async (req, res) => {
     // Check if product is used in any orders or transactions
     const usageCheck = await pool.query(`
       SELECT 1 FROM (
-        SELECT 1 FROM sales_order_line_items WHERE product_id = $1
+        SELECT 1 FROM sales_order_items WHERE product_id = $1
         UNION
-        SELECT 1 FROM purchase_order_line_items WHERE product_id = $1
+        SELECT 1 FROM purchase_order_items WHERE product_id = $1
         UNION
         SELECT 1 FROM credit_note_line_items WHERE product_id = $1
         UNION
