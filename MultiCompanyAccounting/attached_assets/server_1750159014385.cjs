@@ -54,7 +54,7 @@ if (process.env.NODE_ENV == 'production') {
     var connectionString = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING || 
       'InstrumentationKey=e04a0cf1-8129-4bc2-8707-016ae726c876;IngestionEndpoint=https://southindia-0.in.applicationinsights.azure.com/;LiveEndpoint=https://southindia.livediagnostics.monitor.azure.com/;ApplicationId=da90193a-e50f-4283-b108-3450666ada97';
     
-        connectionString = 'InstrumentationKey=e04a0cf1-8129-4bc2-8707-016ae726c876;IngestionEndpoint=https://southindia-0.in.applicationinsights.azure.com/';
+	connectionString = 'InstrumentationKey=e04a0cf1-8129-4bc2-8707-016ae726c876;IngestionEndpoint=https://southindia-0.in.applicationinsights.azure.com/';
     // Parse connection string
     parts = connectionString.split(';');
     var config = {};
@@ -63,26 +63,26 @@ if (process.env.NODE_ENV == 'production') {
       if (key && value) config[key] = value;
     });
     
-        config.InstrumentationKey = 'e04a0cf1-8129-4bc2-8707-016ae726c876';
-        
-        console.log (config.InstrumentationKey);
-        
+	config.InstrumentationKey = 'e04a0cf1-8129-4bc2-8707-016ae726c876';
+	
+	console.log (config.InstrumentationKey);
+	
    
     //appInsights = require('applicationinsights');
 
-                // Enable verbose internal logging to help debug telemetry issues
-                process.env.APPLICATIONINSIGHTS_LOGGING_LEVEL = "verbose";
+		// Enable verbose internal logging to help debug telemetry issues
+		process.env.APPLICATIONINSIGHTS_LOGGING_LEVEL = "verbose";
 
-                 //Initialize Application Insights
-                //appInsights.setup(connectionString)
-                                        //.setAutoCollectConsole(true)
-                                        //.setAutoCollectExceptions(true)
-                                        //.setAutoCollectPerformance(true)
-                                        //.setSendLiveMetrics(true)
-                                        //.start();;
+		 //Initialize Application Insights
+		//appInsights.setup(connectionString)
+					//.setAutoCollectConsole(true)
+					//.setAutoCollectExceptions(true)
+					//.setAutoCollectPerformance(true)
+					//.setSendLiveMetrics(true)
+					//.start();;
 
-                 telemetryClient = appInsights.defaultClient;
-                
+		 telemetryClient = appInsights.defaultClient;
+		
   
 
     console.log('Simplified Application Insights telemetry initialized');
@@ -157,20 +157,20 @@ function logWithApplicationInsights(level, message, requestId = null) {
   //console.log(formattedMessage);
   //logger.log(formattedMessage);
   
-                        // Patch console.log
-        const originalLog = console.log;
-        console.log = function (...args) {
-          const message = args.map(String).join(" ");
-          if (telemetryClient)
-          telemetryClient.trackTrace({
-                message,
-                severity: appInsights.Contracts.SeverityLevel.Information
-          });
-          originalLog.apply(console, args);
-        };
+			// Patch console.log
+	const originalLog = console.log;
+	console.log = function (...args) {
+	  const message = args.map(String).join(" ");
+	  if (telemetryClient)
+	  telemetryClient.trackTrace({
+		message,
+		severity: appInsights.Contracts.SeverityLevel.Information
+	  });
+	  originalLog.apply(console, args);
+	};
 
-        // Always log to console for debugging
-          console.log(formattedMessage);
+	// Always log to console for debugging
+	  console.log(formattedMessage);
   
   // Send to Azure Application Insights using simplified telemetry
   if (process.env.NODE_ENV === 'production' && telemetryClient) {
@@ -186,12 +186,12 @@ function logWithApplicationInsights(level, message, requestId = null) {
     };
     
     try {
-          
+	  
       telemetryClient.trackTrace(formattedMessage, properties);
-          //console.log(telemetryError);
+	  //console.log(telemetryError);
     } catch (telemetryError) {
       // Silently continue on telemetry errors
-         // console.log(telemetryError);
+	 // console.log(telemetryError);
     }
   }
 }
@@ -372,13 +372,14 @@ app.post('/api/intercompany/sales-order', async (req, res) => {
       RETURNING id, order_number, total, status, reference_number
     `, [sourceCompanyId, targetCompanyId, orderNumber, 'Pending', finalTotal, transactionGroupRef]);
 
-    // Save products to sales_order_line_items table if products array provided
+    // Save products to sales_order_items table if products array provided
     if (products && products.length > 0) {
       for (const product of products) {
         await client.query(`
-          INSERT INTO sales_order_line_items (
-            sales_order_id, product_id, quantity, unit_price, total_amount, description
+          INSERT INTO sales_order_items (
+            sales_order_id, product_id, quantity, unit_price, amount, description
           ) VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (id) DO NOTHING
         `, [
           salesOrderResult.rows[0].id,
           product.id || product.productId,
@@ -401,13 +402,14 @@ app.post('/api/intercompany/sales-order', async (req, res) => {
       RETURNING id, order_number, total, status, reference_number
     `, [targetCompanyId, sourceCompanyId, poNumber, 'Pending', finalTotal, transactionGroupRef]);
 
-    // Save products to purchase_order_line_items table if products array provided
+    // Save products to purchase_order_items table if products array provided
     if (products && products.length > 0) {
       for (const product of products) {
         await client.query(`
-          INSERT INTO purchase_order_line_items (
-            purchase_order_id, product_id, quantity, unit_price, total_amount, description
+          INSERT INTO purchase_order_items (
+            purchase_order_id, product_id, quantity, unit_price, amount, description
           ) VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (id) DO NOTHING
         `, [
           purchaseOrderResult.rows[0].id,
           product.id || product.productId,
@@ -488,7 +490,7 @@ app.get('/api/sales-orders/:id/products', async (req, res) => {
         p.description as product_description,
         p.sales_price as product_sales_price
       FROM sales_orders so
-      LEFT JOIN sales_order_line_items soi ON so.id = soi.sales_order_id
+      LEFT JOIN sales_order_items soi ON so.id = soi.sales_order_id
       LEFT JOIN products p ON soi.product_id = p.id
       LEFT JOIN companies c ON so.company_id = c.id
       LEFT JOIN companies cust ON so.customer_id = cust.id
@@ -1107,41 +1109,15 @@ app.get('/api/sales-orders', async (req, res) => {
       return res.status(400).json({ error: 'companyId is required' });
     }
 
-    // Get sales orders with their line items and product details
     const result = await pool.query(`
-      SELECT 
-        so.id, so.order_number, so.order_date, so.total_amount, so.status, 
-        so.company_id, so.customer_id, so.reference_number, so.created_at,
-        c.name as customer_name,
-        json_agg(
-          json_build_object(
-            'id', soli.id,
-            'productId', soli.product_id,
-            'productName', p.name,
-            'productDescription', p.description,
-            'quantity', soli.quantity,
-            'unitPrice', soli.unit_price,
-            'totalAmount', soli.total_amount
-          )
-        ) FILTER (WHERE soli.id IS NOT NULL) as line_items
-      FROM sales_orders so
-      LEFT JOIN companies c ON so.customer_id = c.id
-      LEFT JOIN sales_order_line_items soli ON so.id = soli.sales_order_id
-      LEFT JOIN products p ON soli.product_id = p.id
-      WHERE so.company_id = $1
-      GROUP BY so.id, c.name
-      ORDER BY so.created_at DESC
+      SELECT * FROM sales_orders 
+      WHERE company_id = $1
+      ORDER BY created_at DESC
     `, [companyId]);
 
-    const salesOrdersWithProducts = result.rows.map(order => ({
-      ...order,
-      line_items: order.line_items || [],
-      product_count: order.line_items ? order.line_items.length : 0
-    }));
-
-    logWithApplicationInsights('INF', `Found ${result.rows.length} sales orders with products for company ${companyId}`, requestId);
-    logWithApplicationInsights('INF', `Successfully returned ${result.rows.length} sales orders with line items for company ${companyId}`, requestId);
-    res.json(salesOrdersWithProducts);
+    logWithApplicationInsights('INF', `Found ${result.rows.length} sales orders for company ${companyId}`, requestId);
+    logWithApplicationInsights('INF', `Successfully returned ${result.rows.length} sales orders for company ${companyId}`, requestId);
+    res.json(result.rows);
   } catch (error) {
     logWithApplicationInsights('ERR', `Error fetching sales orders: ${error.message}`, requestId);
     res.status(500).json({ error: 'Failed to fetch sales orders' });
@@ -1152,186 +1128,186 @@ app.get('/api/invoices/summary', async (req, res) => {
   const requestId = `invoices-summary-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const { companyId } = req.query;
   
-  logWithApplicationInsights('INF', `Fetching comprehensive sales data for company ${companyId}`, requestId);
+  logWithApplicationInsights('INF', `Fetching invoices summary for company ${companyId}`, requestId);
   
   try {
     if (!companyId) {
-      logWithApplicationInsights('ERR', 'Sales data fetch failed - companyId is required', requestId);
+      logWithApplicationInsights('ERR', 'Invoices summary fetch failed - companyId is required', requestId);
       return res.status(400).json({ error: 'companyId is required' });
     }
 
-    // Get comprehensive sales order data with workflow statistics
-    const salesOrderData = await pool.query(`
+    // AR Summary with complete sales order → invoice → receipt tracking and customer details
+    const arSummary = await pool.query(`
       SELECT 
+        -- Sales Orders
         COUNT(DISTINCT so.id) as total_sales_orders,
         COALESCE(SUM(DISTINCT so.total), 0) as sales_orders_total,
-        COUNT(DISTINCT CASE WHEN c.id IS NOT NULL THEN so.id END) as intercompany_sales_orders,
-        COUNT(DISTINCT CASE WHEN c.id IS NULL THEN so.id END) as external_sales_orders,
         
-        -- Invoice data
+        -- Invoices (linked and unlinked)
         COUNT(DISTINCT i.id) as total_invoices,
         COALESCE(SUM(DISTINCT i.total), 0) as invoices_total,
         COUNT(DISTINCT CASE WHEN i.sales_order_id IS NOT NULL THEN i.id END) as invoices_from_sales_orders,
         
-        -- Receipt data
+        -- Receipts
         COUNT(DISTINCT r.id) as total_receipts,
         COALESCE(SUM(DISTINCT r.amount), 0) as receipts_total,
         COUNT(DISTINCT CASE WHEN r.invoice_id IS NOT NULL THEN r.id END) as receipts_linked_to_invoices,
         
-        -- Credit notes impact
-        COALESCE(SUM(DISTINCT cn.amount), 0) as credit_notes_total
+        -- Intercompany vs External
+        COUNT(DISTINCT CASE WHEN c.id IS NOT NULL THEN so.id END) as intercompany_sales_orders,
+        COUNT(DISTINCT CASE WHEN c.id IS NULL THEN so.id END) as external_sales_orders
         
       FROM sales_orders so
+      FULL OUTER JOIN invoices i ON so.id = i.sales_order_id AND i.company_id = $1
+      FULL OUTER JOIN receipts r ON i.id = r.invoice_id AND r.company_id = $1
+      LEFT JOIN companies c ON so.customer_id = c.id
+      WHERE so.company_id = $1 OR i.company_id = $1 OR r.company_id = $1
+    `, [companyId]);
+
+    // Get detailed AR breakdown with customer information
+    const arDetails = await pool.query(`
+      SELECT 
+        c.name as customer_name,
+        c.id as customer_id,
+        CASE WHEN c.id IS NOT NULL THEN 'Intercompany' ELSE 'External' END as relationship_type,
+        COUNT(DISTINCT so.id) as sales_orders_count,
+        COALESCE(SUM(DISTINCT so.total), 0) as sales_orders_total,
+        COUNT(DISTINCT i.id) as invoices_count,
+        COALESCE(SUM(DISTINCT i.total), 0) as invoices_total,
+        COUNT(DISTINCT r.id) as receipts_count,
+        COALESCE(SUM(DISTINCT r.amount), 0) as receipts_total,
+        COALESCE(SUM(DISTINCT i.total), 0) - COALESCE(SUM(DISTINCT r.amount), 0) as outstanding_amount
+      FROM sales_orders so
       LEFT JOIN invoices i ON so.id = i.sales_order_id
       LEFT JOIN receipts r ON i.id = r.invoice_id
-      LEFT JOIN credit_notes cn ON cn.company_id = $1
       LEFT JOIN companies c ON so.customer_id = c.id
       WHERE so.company_id = $1
+      GROUP BY c.id, c.name
+      HAVING COUNT(DISTINCT so.id) > 0
+      ORDER BY outstanding_amount DESC
+      LIMIT 10
     `, [companyId]);
 
-    // Get sales order details with product information
+    const result = arSummary.rows[0];
+    const outstandingAR = parseFloat(result.invoices_total) - parseFloat(result.receipts_total);
+
+    // Get detailed sales order breakdown with invoice and receipt counts
     const salesOrderDetails = await pool.query(`
       SELECT 
-        so.id,
-        so.order_number as "OrderNumber",
-        so.reference_number as "ReferenceNumber", 
-        so.order_date as "OrderDate",
-        so.expected_date as "ExpectedDate",
-        so.total as "Total",
-        so.status as "Status",
-        cust.name as "CustomerName",
-        COALESCE(COUNT(soli.id), 0) as "ProductCount",
-        COALESCE(SUM(soli.quantity), 0) as "TotalQuantity",
-        CASE WHEN i.id IS NOT NULL THEN true ELSE false END as "HasInvoice",
-        i.invoice_number as "InvoiceNumber",
-        i.total as "InvoiceAmount"
+        so.id as sales_order_id,
+        so.order_number,
+        so.total as sales_order_total,
+        so.reference_number,
+        so.order_date,
+        so.status,
+        c.name as customer_name,
+        c.id as customer_id,
+        COUNT(DISTINCT i.id) as invoice_count,
+        COALESCE(SUM(DISTINCT i.total), 0) as invoices_total,
+        COUNT(DISTINCT r.id) as receipt_count,
+        COALESCE(SUM(DISTINCT r.amount), 0) as receipts_total,
+        (COALESCE(SUM(DISTINCT i.total), 0) - COALESCE(SUM(DISTINCT r.amount), 0)) as outstanding_amount
       FROM sales_orders so
-      LEFT JOIN companies cust ON so.customer_id = cust.id
-      LEFT JOIN sales_order_line_items soli ON so.id = soli.sales_order_id
-      LEFT JOIN invoices i ON so.id = i.sales_order_id
-      WHERE so.company_id = $1
-      GROUP BY so.id, so.order_number, so.reference_number, so.order_date, 
-               so.expected_date, so.total, so.status, cust.name, i.id, 
-               i.invoice_number, i.total
-      ORDER BY so.created_at DESC
-      LIMIT 50
-    `, [companyId]);
-
-    // Get customer breakdown
-    const customerBreakdown = await pool.query(`
-      SELECT 
-        cust.name as "CustomerName",
-        COUNT(DISTINCT so.id) as "SalesOrderCount",
-        COALESCE(SUM(so.total), 0) as "SalesOrderTotal",
-        COUNT(DISTINCT i.id) as "InvoiceCount", 
-        COALESCE(SUM(i.total), 0) as "InvoiceTotal",
-        COUNT(DISTINCT r.id) as "ReceiptCount",
-        COALESCE(SUM(r.amount), 0) as "ReceiptTotal",
-        COALESCE(SUM(i.total), 0) - COALESCE(SUM(r.amount), 0) as "OutstandingAmount"
-      FROM companies cust
-      LEFT JOIN sales_orders so ON cust.id = so.customer_id AND so.company_id = $1
-      LEFT JOIN invoices i ON so.id = i.sales_order_id
-      LEFT JOIN receipts r ON i.id = r.invoice_id
-      WHERE cust.id IN (SELECT DISTINCT customer_id FROM sales_orders WHERE company_id = $1)
-      GROUP BY cust.id, cust.name
-      ORDER BY "SalesOrderTotal" DESC
-    `, [companyId]);
-
-    // Get workflow statistics
-    const workflowStats = await pool.query(`
-      SELECT 
-        COUNT(CASE WHEN so.status = 'Pending' THEN 1 END) as "PendingOrders",
-        COUNT(CASE WHEN so.status = 'Completed' THEN 1 END) as "CompletedOrders",
-        COUNT(CASE WHEN so.status = 'Cancelled' THEN 1 END) as "CancelledOrders",
-        COUNT(CASE WHEN i.id IS NOT NULL THEN 1 END) as "OrdersWithInvoices",
-        COUNT(CASE WHEN r.id IS NOT NULL THEN 1 END) as "OrdersWithReceipts",
-        AVG(so.total) as "AverageOrderValue",
-        MAX(so.total) as "LargestOrderValue",
-        MIN(so.total) as "SmallestOrderValue"
-      FROM sales_orders so
+      LEFT JOIN companies c ON so.customer_id = c.id
       LEFT JOIN invoices i ON so.id = i.sales_order_id
       LEFT JOIN receipts r ON i.id = r.invoice_id
       WHERE so.company_id = $1
+      GROUP BY so.id, so.order_number, so.total, so.reference_number, so.order_date, so.status, c.name, c.id
+      ORDER BY so.order_date DESC
+      LIMIT 20
     `, [companyId]);
 
-    const summary = salesOrderData.rows[0] || {};
-    const details = salesOrderDetails.rows || [];
-    const customers = customerBreakdown.rows || [];
-    const workflow = workflowStats.rows[0] || {};
-
-    // Calculate outstanding receivables (Invoices - Receipts - Credit Notes)
-    const outstandingReceivables = (parseFloat(summary.invoices_total) || 0) - 
-                                   (parseFloat(summary.receipts_total) || 0) - 
-                                   (parseFloat(summary.credit_notes_total) || 0);
-
-    // Build response matching C# SalesData structure
-    const salesData = {
-      SalesOrderWorkflow: {
-        TotalOrders: parseInt(summary.total_sales_orders) || 0,
-        PendingOrders: parseInt(workflow.PendingOrders) || 0,
-        CompletedOrders: parseInt(workflow.CompletedOrders) || 0,
-        CancelledOrders: parseInt(workflow.CancelledOrders) || 0,
-        OrdersWithInvoices: parseInt(workflow.OrdersWithInvoices) || 0,
-        OrdersWithReceipts: parseInt(workflow.OrdersWithReceipts) || 0,
-        AverageOrderValue: parseFloat(workflow.AverageOrderValue) || 0,
-        ConversionRate: summary.total_sales_orders > 0 ? 
-          ((parseInt(workflow.OrdersWithInvoices) || 0) / parseInt(summary.total_sales_orders)) * 100 : 0
+    res.json({
+      // Enhanced Sales Order → Sales Invoice → Sales Receipt Workflow
+      salesOrderWorkflow: {
+        totalSalesOrders: result.total_sales_orders.toString(),
+        totalSalesOrderAmount: parseFloat(result.sales_orders_total).toFixed(2),
+        totalSalesInvoices: result.total_invoices.toString(),
+        totalSalesInvoiceAmount: parseFloat(result.invoices_total).toFixed(2),
+        totalSalesReceipts: result.total_receipts.toString(),
+        totalSalesReceiptAmount: parseFloat(result.receipts_total).toFixed(2),
+        outstandingReceivables: outstandingAR.toFixed(2)
       },
-      SalesOrderDetails: details.map(detail => ({
-        Id: detail.id,
-        OrderNumber: detail.OrderNumber,
-        ReferenceNumber: detail.ReferenceNumber,
-        OrderDate: detail.OrderDate,
-        ExpectedDate: detail.ExpectedDate,
-        Total: parseFloat(detail.Total) || 0,
-        Status: detail.Status,
-        CustomerName: detail.CustomerName,
-        ProductCount: parseInt(detail.ProductCount) || 0,
-        TotalQuantity: parseInt(detail.TotalQuantity) || 0,
-        HasInvoice: detail.HasInvoice,
-        InvoiceNumber: detail.InvoiceNumber,
-        InvoiceAmount: parseFloat(detail.InvoiceAmount) || 0
+
+      // Detailed sales order breakdown showing invoices and receipts for each order
+      salesOrderDetails: salesOrderDetails.rows.map(row => ({
+        salesOrderId: row.sales_order_id,
+        orderNumber: row.order_number,
+        referenceNumber: row.reference_number,
+        orderDate: row.order_date,
+        status: row.status,
+        salesOrderTotal: parseFloat(row.sales_order_total).toFixed(2),
+        customer: {
+          id: row.customer_id,
+          name: row.customer_name || 'External Customer',
+          type: row.customer_id ? 'Intercompany' : 'External'
+        },
+        invoices: {
+          count: parseInt(row.invoice_count),
+          totalAmount: parseFloat(row.invoices_total).toFixed(2)
+        },
+        receipts: {
+          count: parseInt(row.receipt_count),
+          totalAmount: parseFloat(row.receipts_total).toFixed(2)
+        },
+        outstandingAmount: parseFloat(row.outstanding_amount).toFixed(2),
+        workflowStatus: `${row.invoice_count} invoices, ${row.receipt_count} receipts`
       })),
-      WorkflowStatistics: {
-        TotalWorkflows: parseInt(summary.total_sales_orders) || 0,
-        ActiveWorkflows: parseInt(workflow.PendingOrders) || 0,
-        CompletedWorkflows: parseInt(workflow.CompletedOrders) || 0,
-        WorkflowCompletionRate: summary.total_sales_orders > 0 ? 
-          ((parseInt(workflow.CompletedOrders) || 0) / parseInt(summary.total_sales_orders)) * 100 : 0,
-        AverageCompletionTime: 7, // Default estimate in days
-        ProcessingEfficiency: workflow.OrdersWithInvoices > 0 ?
-          ((parseInt(workflow.OrdersWithReceipts) || 0) / parseInt(workflow.OrdersWithInvoices)) * 100 : 0
+      
+      // Summary statistics
+      workflowStatistics: {
+        salesOrdersWithInvoices: result.invoices_from_sales_orders.toString(),
+        salesOrdersWithoutInvoices: (parseInt(result.total_sales_orders) - parseInt(result.invoices_from_sales_orders)).toString(),
+        invoicesWithReceipts: result.receipts_linked_to_invoices.toString(),
+        invoicesWithoutReceipts: (parseInt(result.total_invoices) - parseInt(result.receipts_linked_to_invoices)).toString(),
+        intercompanySalesOrders: result.intercompany_sales_orders.toString(),
+        externalSalesOrders: result.external_sales_orders.toString()
       },
-      TotalSalesOrders: parseInt(summary.total_sales_orders) || 0,
-      SalesOrdersTotal: parseFloat(summary.sales_orders_total) || 0,
-      IntercompanySalesOrders: parseInt(summary.intercompany_sales_orders) || 0,
-      ExternalSalesOrders: parseInt(summary.external_sales_orders) || 0,
-      TotalInvoices: parseInt(summary.total_invoices) || 0,
-      InvoicesTotal: parseFloat(summary.invoices_total) || 0,
-      InvoicesFromSalesOrders: parseInt(summary.invoices_from_sales_orders) || 0,
-      TotalReceipts: parseInt(summary.total_receipts) || 0,
-      ReceiptsTotal: parseFloat(summary.receipts_total) || 0,
-      ReceiptsLinkedToInvoices: parseInt(summary.receipts_linked_to_invoices) || 0,
-      OutstandingReceivables: outstandingReceivables,
-      CustomerBreakdown: customers.map(customer => ({
-        CustomerName: customer.CustomerName,
-        SalesOrderCount: parseInt(customer.SalesOrderCount) || 0,
-        SalesOrderTotal: parseFloat(customer.SalesOrderTotal) || 0,
-        InvoiceCount: parseInt(customer.InvoiceCount) || 0,
-        InvoiceTotal: parseFloat(customer.InvoiceTotal) || 0,
-        ReceiptCount: parseInt(customer.ReceiptCount) || 0,
-        ReceiptTotal: parseFloat(customer.ReceiptTotal) || 0,
-        OutstandingAmount: parseFloat(customer.OutstandingAmount) || 0,
-        PaymentEfficiency: customer.InvoiceTotal > 0 ? 
-          ((parseFloat(customer.ReceiptTotal) || 0) / parseFloat(customer.InvoiceTotal)) * 100 : 0
-      }))
-    };
-
-    logWithApplicationInsights('INF', `Sales data compiled successfully for company ${companyId}: ${salesData.TotalSalesOrders} orders, ${salesData.TotalInvoices} invoices`, requestId);
-    res.json(salesData);
+      
+      // Legacy format for backward compatibility
+      totalSalesOrders: result.total_sales_orders.toString(),
+      salesOrdersTotal: parseFloat(result.sales_orders_total).toFixed(2),
+      intercompanySalesOrders: result.intercompany_sales_orders.toString(),
+      externalSalesOrders: result.external_sales_orders.toString(),
+      totalInvoices: result.total_invoices.toString(),
+      invoicesTotal: parseFloat(result.invoices_total).toFixed(2),
+      invoicesFromSalesOrders: result.invoices_from_sales_orders.toString(),
+      totalReceipts: result.total_receipts.toString(),
+      receiptsTotal: parseFloat(result.receipts_total).toFixed(2),
+      receiptsLinkedToInvoices: result.receipts_linked_to_invoices.toString(),
+      outstandingReceivables: outstandingAR.toFixed(2),
+      
+      // Customer/Intercompany Details
+      customerBreakdown: arDetails.rows.map(row => ({
+        customerName: row.customer_name || 'External Customer',
+        customerId: row.customer_id,
+        relationshipType: row.relationship_type,
+        salesOrders: {
+          count: row.sales_orders_count.toString(),
+          total: parseFloat(row.sales_orders_total).toFixed(2)
+        },
+        invoices: {
+          count: row.invoices_count.toString(),
+          total: parseFloat(row.invoices_total).toFixed(2)
+        },
+        receipts: {
+          count: row.receipts_count.toString(),
+          total: parseFloat(row.receipts_total).toFixed(2)
+        },
+        outstandingAmount: parseFloat(row.outstanding_amount).toFixed(2)
+      })),
+      
+      // Legacy format for compatibility
+      totalinvoices: result.total_invoices.toString(),
+      totalamount: parseFloat(result.invoices_total).toFixed(2),
+      paidinvoices: result.total_receipts.toString(),
+      paidamount: parseFloat(result.receipts_total).toFixed(2)
+    });
+    
+    logWithApplicationInsights('INF', `Invoices summary generated for company ${companyId}: ${result.total_invoices} invoices totaling ${result.invoices_total}`, requestId);
   } catch (error) {
-    logWithApplicationInsights('ERR', `Error fetching sales data: ${error.message}`, requestId);
-    res.status(500).json({ error: 'Failed to fetch sales data' });
+    logWithApplicationInsights('ERR', `Error fetching AR summary: ${error.message}`, requestId);
+    res.status(500).json({ error: 'Failed to fetch AR summary' });
   }
 });
 
@@ -1339,197 +1315,136 @@ app.get('/api/bills/summary', async (req, res) => {
   const requestId = `bills-summary-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const { companyId } = req.query;
   
-  logWithApplicationInsights('INF', `Fetching comprehensive bill summary for company ${companyId}`, requestId);
+  logWithApplicationInsights('INF', `Fetching bills summary for company ${companyId}`, requestId);
   
   try {
     if (!companyId) {
-      logWithApplicationInsights('ERR', 'Bill summary fetch failed - companyId is required', requestId);
+      logWithApplicationInsights('ERR', 'Bills summary fetch failed - companyId is required', requestId);
       return res.status(400).json({ error: 'companyId is required' });
     }
 
     // Get company information
-    const companyInfo = await pool.query(`
+    const companyResult = await pool.query(`
       SELECT name FROM companies WHERE id = $1
     `, [companyId]);
 
-    if (companyInfo.rows.length === 0) {
-      return res.status(404).json({ error: 'Company not found' });
-    }
-
-    // Get summary statistics
-    const summaryData = await pool.query(`
+    // Get purchase order summary data
+    const summaryResult = await pool.query(`
       SELECT 
         COUNT(DISTINCT po.id) as total_orders,
-        COALESCE(SUM(DISTINCT po.total), 0) as total_order_value,
+        COALESCE(SUM(po.total), 0) as total_order_value,
         COUNT(DISTINCT CASE WHEN b.id IS NOT NULL THEN po.id END) as orders_with_bills,
         COALESCE(SUM(DISTINCT b.total), 0) as total_billed,
-        COALESCE(SUM(DISTINCT p.amount), 0) as total_paid,
-        COALESCE(SUM(DISTINCT CASE WHEN b.id IS NOT NULL AND p.id IS NULL THEN b.total ELSE 0 END), 0) as pending_bill_value,
-        COALESCE(SUM(DISTINCT CASE WHEN b.id IS NOT NULL THEN b.total ELSE 0 END) - SUM(DISTINCT CASE WHEN p.id IS NOT NULL THEN p.amount ELSE 0 END), 0) as pending_payment_value,
-        COALESCE(SUM(DISTINCT dn.amount), 0) as debit_notes_total
+        COALESCE(SUM(DISTINCT bp.amount), 0) as total_paid
       FROM purchase_orders po
       LEFT JOIN bills b ON po.id = b.purchase_order_id
-      LEFT JOIN payments p ON b.id = p.bill_id
-      LEFT JOIN debit_notes dn ON dn.company_id = $1
+      LEFT JOIN bill_payments bp ON b.id = bp.bill_id
       WHERE po.company_id = $1
     `, [companyId]);
 
-    // Get detailed purchase order information
-    const purchaseOrders = await pool.query(`
+    // Get detailed purchase orders with bills and payments
+    const purchaseOrdersResult = await pool.query(`
       SELECT 
-        po.id as "OrderId",
-        po.order_number as "OrderNumber",
-        po.order_date as "OrderDate",
-        v.name as "VendorName",
-        po.total as "OrderTotal",
-        po.status as "Status",
-        po.reference_number,
-        b.id as "BillId",
-        b.bill_number as "BillNumber",
-        b.bill_date as "BillDate",
-        b.total as "BillTotal",
-        b.status as "BillStatus",
-        p.id as "PaymentId",
-        p.payment_number as "PaymentNumber",
-        p.amount as "PaymentAmount",
-        p.payment_date as "PaymentDate",
-        p.payment_method as "PaymentMethod",
-        CASE 
-          WHEN b.id IS NULL THEN 'Order Created'
-          WHEN p.id IS NULL THEN 'Bill Generated'
-          ELSE 'Payment Completed'
-        END as "WorkflowStatus"
+        po.id as order_id,
+        po.order_number,
+        po.order_date,
+        po.total as order_total,
+        po.status,
+        c.name as vendor_name,
+        b.id as bill_id,
+        b.bill_number,
+        b.bill_date,
+        b.total as bill_total,
+        b.status as bill_status
       FROM purchase_orders po
-      LEFT JOIN companies v ON po.vendor_id = v.id
+      LEFT JOIN companies c ON po.vendor_id = c.id
       LEFT JOIN bills b ON po.id = b.purchase_order_id
-      LEFT JOIN payments p ON b.id = p.bill_id
       WHERE po.company_id = $1
-      ORDER BY po.created_at DESC
+      ORDER BY po.order_date DESC
       LIMIT 50
     `, [companyId]);
 
-    // Get order items for each purchase order
-    const orderItems = await pool.query(`
+    // Get purchase order items
+    const orderItemsResult = await pool.query(`
       SELECT 
-        poli.purchase_order_id,
-        poli.product_id,
-        pr.name as product_name,
-        poli.quantity,
-        poli.unit_price,
-        poli.total_amount,
-        poli.description
-      FROM purchase_order_line_items poli
-      LEFT JOIN products pr ON poli.product_id = pr.id
-      WHERE poli.purchase_order_id IN (
+        poi.purchase_order_id,
+        poi.product_id,
+        p.code as product_code,
+        p.name as product_name,
+        poi.quantity,
+        poi.unit_price,
+        poi.amount
+      FROM purchase_order_items poi
+      LEFT JOIN products p ON poi.product_id = p.id
+      WHERE poi.purchase_order_id IN (
         SELECT id FROM purchase_orders WHERE company_id = $1
       )
     `, [companyId]);
 
     // Get bill items
-    const billItems = await pool.query(`
+    const billItemsResult = await pool.query(`
       SELECT 
         bi.bill_id,
         bi.product_id,
-        pr.name as product_name,
+        p.code as product_code,
+        p.name as product_name,
         bi.quantity,
         bi.unit_price,
-        bi.total_amount,
-        bi.description
-      FROM bill_line_items bi
-      LEFT JOIN products pr ON bi.product_id = pr.id
+        bi.amount
+      FROM bill_items bi
+      LEFT JOIN products p ON bi.product_id = p.id
       WHERE bi.bill_id IN (
         SELECT b.id FROM bills b 
-        JOIN purchase_orders po ON b.purchase_order_id = po.id 
+        INNER JOIN purchase_orders po ON b.purchase_order_id = po.id
         WHERE po.company_id = $1
       )
     `, [companyId]);
 
-    const summary = summaryData.rows[0] || {};
-    const orders = purchaseOrders.rows || [];
-    
-    // Group items by order/bill
+    // Get payment details
+    const paymentsResult = await pool.query(`
+      SELECT 
+        bp.id as payment_id,
+        bp.payment_number,
+        bp.amount,
+        bp.payment_date,
+        bp.payment_method,
+        bp.bill_id
+      FROM bill_payments bp
+      INNER JOIN bills b ON bp.bill_id = b.id
+      INNER JOIN purchase_orders po ON b.purchase_order_id = po.id
+      WHERE po.company_id = $1
+    `, [companyId]);
+
+
+
+    // Process the data into the required structure
+    const summary = summaryResult.rows[0];
+    const pendingBillValue = parseFloat(summary.total_order_value) - parseFloat(summary.total_billed);
+    const pendingPaymentValue = parseFloat(summary.total_billed) - parseFloat(summary.total_paid);
+
+    // Group items by order and bill
     const orderItemsMap = {};
-    const billItemsMap = {};
-    
-    orderItems.rows.forEach(item => {
+    orderItemsResult.rows.forEach(item => {
       if (!orderItemsMap[item.purchase_order_id]) {
         orderItemsMap[item.purchase_order_id] = [];
       }
       orderItemsMap[item.purchase_order_id].push({
         ProductId: item.product_id,
-        ProductName: item.product_name,
-        Quantity: parseInt(item.quantity) || 0,
-        UnitPrice: parseFloat(item.unit_price) || 0,
-        TotalAmount: parseFloat(item.total_amount) || 0,
-        Description: item.description
+        ProductCode: item.product_code || '',
+        ProductName: item.product_name || '',
+        Quantity: parseInt(item.quantity),
+        UnitPrice: parseFloat(item.unit_price),
+        Amount: parseFloat(item.amount)
       });
     });
 
-    billItems.rows.forEach(item => {
+    const billItemsMap = {};
+    billItemsResult.rows.forEach(item => {
       if (!billItemsMap[item.bill_id]) {
         billItemsMap[item.bill_id] = [];
       }
       billItemsMap[item.bill_id].push({
         ProductId: item.product_id,
-        ProductName: item.product_name,
-        Quantity: parseInt(item.quantity) || 0,
-        UnitPrice: parseFloat(item.unit_price) || 0,
-        TotalAmount: parseFloat(item.total_amount) || 0,
-        Description: item.description
-      });
-    });
-
-    // Build response matching C# BillSummaryReport structure
-    const billSummaryReport = {
-      CompanyId: parseInt(companyId),
-      CompanyName: companyInfo.rows[0].name,
-      ReportDate: new Date().toISOString().split('T')[0],
-      Summary: {
-        TotalOrders: parseInt(summary.total_orders) || 0,
-        TotalOrderValue: parseFloat(summary.total_order_value) || 0,
-        OrdersWithBills: parseInt(summary.orders_with_bills) || 0,
-        TotalBilled: parseFloat(summary.total_billed) || 0,
-        TotalPaid: parseFloat(summary.total_paid) || 0,
-        PendingBillValue: parseFloat(summary.pending_bill_value) || 0,
-        PendingPaymentValue: parseFloat(summary.pending_payment_value) || 0,
-        DebitNotesTotal: parseFloat(summary.debit_notes_total) || 0,
-        AccountsPayable: (parseFloat(summary.total_billed) || 0) - (parseFloat(summary.total_paid) || 0) + (parseFloat(summary.debit_notes_total) || 0)
-      },
-      PurchaseOrders: orders.map(order => ({
-        OrderId: order.OrderId,
-        OrderNumber: order.OrderNumber,
-        OrderDate: order.OrderDate,
-        VendorName: order.VendorName,
-        OrderTotal: parseFloat(order.OrderTotal) || 0,
-        Status: order.Status,
-        OrderItems: orderItemsMap[order.OrderId] || [],
-        BillDetails: order.BillId ? {
-          BillId: order.BillId,
-          BillNumber: order.BillNumber,
-          BillDate: order.BillDate,
-          BillTotal: parseFloat(order.BillTotal) || 0,
-          Status: order.BillStatus,
-          BillItems: billItemsMap[order.BillId] || []
-        } : null,
-        PaymentDetails: order.PaymentId ? [{
-          PaymentId: order.PaymentId,
-          PaymentNumber: order.PaymentNumber,
-          Amount: parseFloat(order.PaymentAmount) || 0,
-          PaymentDate: order.PaymentDate,
-          PaymentMethod: order.PaymentMethod
-        }] : [],
-        WorkflowStatus: order.WorkflowStatus,
-        ReferenceNumber: order.reference_number
-      }))
-    };
-
-    logWithApplicationInsights('INF', `Bill summary compiled successfully for company ${companyId}: ${billSummaryReport.Summary.TotalOrders} orders, ${billSummaryReport.Summary.TotalBilled} billed`, requestId);
-    res.json(billSummaryReport);
-  } catch (error) {
-    logWithApplicationInsights('ERR', `Error fetching bill summary: ${error.message}`, requestId);
-    res.status(500).json({ error: 'Failed to fetch bill summary' });
-  }
-});
         ProductCode: item.product_code || '',
         ProductName: item.product_name || '',
         Quantity: parseInt(item.quantity),
@@ -1612,8 +1527,6 @@ app.get('/api/bills/summary', async (req, res) => {
         OrdersWithBills: parseInt(summary.orders_with_bills),
         TotalBilled: parseFloat(summary.total_billed),
         TotalPaid: parseFloat(summary.total_paid),
-        TotalDebitNotes: parseInt(summary.total_debit_notes),
-        TotalDebitNotesAmount: parseFloat(summary.debit_notes_total),
         PendingBillValue: pendingBillValue,
         PendingPaymentValue: pendingPaymentValue
       },
@@ -2021,649 +1934,6 @@ app.post('/api/setup-database', async (req, res) => {
       error: 'Database setup failed',
       details: error.message
     });
-  }
-});
-
-// Intercompany Adjustment API - uses reference numbers to create balancing credit/debit notes
-app.post('/api/intercompany/adjustment', async (req, res) => {
-  const requestId = generateRequestId();
-  logWithApplicationInsights('INFO', `Starting intercompany adjustment`, requestId);
-  
-  try {
-    const { referenceNumber, adjustmentAmount, adjustmentReason, products } = req.body;
-    
-    if (!referenceNumber || !adjustmentAmount) {
-      return res.status(400).json({ 
-        error: 'Reference number and adjustment amount are required' 
-      });
-    }
-
-    // Find sales order and related invoice using reference number
-    const salesOrderQuery = await pool.query(`
-      SELECT so.*, i.id as invoice_id, i.invoice_number, i.total_amount as invoice_amount,
-             c1.name as company_name, c2.name as customer_name
-      FROM sales_orders so
-      LEFT JOIN invoices i ON so.id = i.sales_order_id
-      LEFT JOIN companies c1 ON so.company_id = c1.id
-      LEFT JOIN companies c2 ON so.customer_id = c2.id
-      WHERE so.reference_number = $1
-      ORDER BY so.created_at DESC
-      LIMIT 1
-    `, [referenceNumber]);
-
-    // Find purchase order and related bill using reference number
-    const purchaseOrderQuery = await pool.query(`
-      SELECT po.*, b.id as bill_id, b.bill_number, b.total_amount as bill_amount,
-             c1.name as company_name, c2.name as vendor_name
-      FROM purchase_orders po
-      LEFT JOIN bills b ON po.id = b.purchase_order_id
-      LEFT JOIN companies c1 ON po.company_id = c1.id
-      LEFT JOIN companies c2 ON po.vendor_id = c2.id
-      WHERE po.reference_number = $1
-      ORDER BY po.created_at DESC
-      LIMIT 1
-    `, [referenceNumber]);
-
-    const salesOrder = salesOrderQuery.rows[0];
-    const purchaseOrder = purchaseOrderQuery.rows[0];
-
-    if (!salesOrder && !purchaseOrder) {
-      return res.status(404).json({ 
-        error: `No transactions found for reference number: ${referenceNumber}` 
-      });
-    }
-
-    const adjustments = [];
-    const adjustmentDate = new Date().toISOString().split('T')[0];
-
-    // Create credit note for sales order/invoice (reduces AR)
-    if (salesOrder && salesOrder.invoice_id) {
-      const creditNoteNumber = `CN-${salesOrder.company_id}-${Date.now()}`;
-      
-      const creditNoteResult = await pool.query(`
-        INSERT INTO credit_notes (
-          credit_note_number, company_id, customer_id, invoice_id,
-          total_amount, credit_note_date, status, reason, reference_number
-        ) VALUES ($1, $2, $3, $4, $5, $6, 'processed', $7, $8)
-        RETURNING *
-      `, [
-        creditNoteNumber,
-        salesOrder.company_id,
-        salesOrder.customer_id,
-        salesOrder.invoice_id,
-        adjustmentAmount,
-        adjustmentDate,
-        adjustmentReason || `Intercompany adjustment for reference ${referenceNumber}`,
-        referenceNumber
-      ]);
-
-      const creditNoteId = creditNoteResult.rows[0].id;
-
-      // Add product line items if products are provided
-      if (products && Array.isArray(products) && products.length > 0) {
-        for (const product of products) {
-          await pool.query(`
-            INSERT INTO credit_note_line_items (
-              credit_note_id, product_id, quantity, unit_price, total_amount, reason
-            ) VALUES ($1, $2, $3, $4, $5, $6)
-          `, [
-            creditNoteId,
-            product.productId,
-            product.quantity || 1,
-            product.unitPrice || (adjustmentAmount / products.length),
-            product.totalAmount || (adjustmentAmount / products.length),
-            product.reason || adjustmentReason
-          ]);
-        }
-
-        // Get sales order line items to append products
-        const salesOrderLines = await pool.query(`
-          SELECT * FROM sales_order_line_items WHERE sales_order_id = $1
-        `, [salesOrder.id]);
-
-        logWithApplicationInsights('INFO', `Added ${products.length} product line items to credit note and sales order`, requestId);
-      }
-
-      adjustments.push({
-        type: 'credit_note',
-        id: creditNoteId,
-        number: creditNoteNumber,
-        company: salesOrder.company_name,
-        customer: salesOrder.customer_name,
-        invoice_number: salesOrder.invoice_number,
-        amount: adjustmentAmount,
-        impact: 'Reduces Accounts Receivable',
-        productLines: products ? products.length : 0
-      });
-
-      logWithApplicationInsights('INFO', `Created credit note ${creditNoteNumber} for invoice ${salesOrder.invoice_number}`, requestId);
-    }
-
-    // Create debit note for purchase order/bill (increases AP)
-    if (purchaseOrder && purchaseOrder.bill_id) {
-      const debitNoteNumber = `DN-${purchaseOrder.company_id}-${Date.now()}`;
-      
-      const debitNoteResult = await pool.query(`
-        INSERT INTO debit_notes (
-          debit_note_number, company_id, vendor_id, bill_id,
-          total_amount, debit_note_date, status, reason, reference_number
-        ) VALUES ($1, $2, $3, $4, $5, $6, 'processed', $7, $8)
-        RETURNING *
-      `, [
-        debitNoteNumber,
-        purchaseOrder.company_id,
-        purchaseOrder.vendor_id,
-        purchaseOrder.bill_id,
-        adjustmentAmount,
-        adjustmentDate,
-        adjustmentReason || `Intercompany adjustment for reference ${referenceNumber}`,
-        referenceNumber
-      ]);
-
-      const debitNoteId = debitNoteResult.rows[0].id;
-
-      // Add product line items if products are provided
-      if (products && Array.isArray(products) && products.length > 0) {
-        for (const product of products) {
-          await pool.query(`
-            INSERT INTO debit_note_line_items (
-              debit_note_id, product_id, quantity, unit_price, total_amount, reason
-            ) VALUES ($1, $2, $3, $4, $5, $6)
-          `, [
-            debitNoteId,
-            product.productId,
-            product.quantity || 1,
-            product.unitPrice || (adjustmentAmount / products.length),
-            product.totalAmount || (adjustmentAmount / products.length),
-            product.reason || adjustmentReason
-          ]);
-        }
-
-        // Get purchase order line items to append products
-        const purchaseOrderLines = await pool.query(`
-          SELECT * FROM purchase_order_line_items WHERE purchase_order_id = $1
-        `, [purchaseOrder.id]);
-
-        logWithApplicationInsights('INFO', `Added ${products.length} product line items to debit note and purchase order`, requestId);
-      }
-
-      adjustments.push({
-        type: 'debit_note',
-        id: debitNoteId,
-        number: debitNoteNumber,
-        company: purchaseOrder.company_name,
-        vendor: purchaseOrder.vendor_name,
-        bill_number: purchaseOrder.bill_number,
-        amount: adjustmentAmount,
-        impact: 'Increases Accounts Payable',
-        productLines: products ? products.length : 0
-      });
-
-      logWithApplicationInsights('INFO', `Created debit note ${debitNoteNumber} for bill ${purchaseOrder.bill_number}`, requestId);
-    }
-
-    const response = {
-      success: true,
-      referenceNumber,
-      adjustmentAmount: parseFloat(adjustmentAmount),
-      adjustmentReason: adjustmentReason || `Intercompany adjustment for reference ${referenceNumber}`,
-      adjustmentDate,
-      adjustments,
-      productDetails: products || [],
-      summary: {
-        salesOrder: salesOrder ? {
-          orderNumber: salesOrder.order_number,
-          company: salesOrder.company_name,
-          customer: salesOrder.customer_name,
-          invoiceNumber: salesOrder.invoice_number,
-          invoiceAmount: salesOrder.invoice_amount
-        } : null,
-        purchaseOrder: purchaseOrder ? {
-          orderNumber: purchaseOrder.order_number,
-          company: purchaseOrder.company_name,
-          vendor: purchaseOrder.vendor_name,
-          billNumber: purchaseOrder.bill_number,
-          billAmount: purchaseOrder.bill_amount
-        } : null,
-        totalAdjustments: adjustments.length,
-        balancingEffect: adjustments.length === 2 ? 'Complete intercompany balance' : 'Partial adjustment',
-        productLinesAdded: products ? products.length : 0
-      }
-    };
-
-    logWithApplicationInsights('INFO', `Intercompany adjustment completed: ${adjustments.length} adjustments created`, requestId);
-    res.status(201).json(response);
-
-  } catch (error) {
-    logWithApplicationInsights('ERR', `Error creating intercompany adjustment: ${error.message}`, requestId);
-    res.status(500).json({ error: 'Failed to create intercompany adjustment' });
-  }
-});
-
-// Get all adjustments for a reference number
-app.get('/api/intercompany/adjustment/:reference', async (req, res) => {
-  const requestId = generateRequestId();
-  
-  try {
-    const { reference } = req.params;
-    
-    // Get all credit notes for this reference with line items
-    const creditNotes = await pool.query(`
-      SELECT cn.*, c1.name as company_name, c2.name as customer_name, i.invoice_number,
-             json_agg(
-               json_build_object(
-                 'productId', cnli.product_id,
-                 'quantity', cnli.quantity,
-                 'unitPrice', cnli.unit_price,
-                 'totalAmount', cnli.total_amount,
-                 'reason', cnli.reason
-               )
-             ) FILTER (WHERE cnli.id IS NOT NULL) as line_items
-      FROM credit_notes cn
-      LEFT JOIN companies c1 ON cn.company_id = c1.id
-      LEFT JOIN companies c2 ON cn.customer_id = c2.id
-      LEFT JOIN invoices i ON cn.invoice_id = i.id
-      LEFT JOIN credit_note_line_items cnli ON cn.id = cnli.credit_note_id
-      WHERE cn.reference_number = $1
-      GROUP BY cn.id, c1.name, c2.name, i.invoice_number
-      ORDER BY cn.created_at DESC
-    `, [reference]);
-
-    // Get all debit notes for this reference with line items
-    const debitNotes = await pool.query(`
-      SELECT dn.*, c1.name as company_name, c2.name as vendor_name, b.bill_number,
-             json_agg(
-               json_build_object(
-                 'productId', dnli.product_id,
-                 'quantity', dnli.quantity,
-                 'unitPrice', dnli.unit_price,
-                 'totalAmount', dnli.total_amount,
-                 'reason', dnli.reason
-               )
-             ) FILTER (WHERE dnli.id IS NOT NULL) as line_items
-      FROM debit_notes dn
-      LEFT JOIN companies c1 ON dn.company_id = c1.id
-      LEFT JOIN companies c2 ON dn.vendor_id = c2.id
-      LEFT JOIN bills b ON dn.bill_id = b.id
-      LEFT JOIN debit_note_line_items dnli ON dn.id = dnli.debit_note_id
-      WHERE dn.reference_number = $1
-      GROUP BY dn.id, c1.name, c2.name, b.bill_number
-      ORDER BY dn.created_at DESC
-    `, [reference]);
-
-    const totalCreditAmount = creditNotes.rows.reduce((sum, cn) => sum + parseFloat(cn.total_amount), 0);
-    const totalDebitAmount = debitNotes.rows.reduce((sum, dn) => sum + parseFloat(dn.total_amount), 0);
-
-    res.json({
-      referenceNumber: reference,
-      creditNotes: creditNotes.rows,
-      debitNotes: debitNotes.rows,
-      summary: {
-        totalCreditNotes: creditNotes.rows.length,
-        totalCreditAmount,
-        totalDebitNotes: debitNotes.rows.length,
-        totalDebitAmount,
-        netAdjustment: totalDebitAmount - totalCreditAmount,
-        isBalanced: Math.abs(totalDebitAmount - totalCreditAmount) < 0.01,
-        hasProductDetails: creditNotes.rows.some(cn => cn.line_items?.length > 0) || 
-                          debitNotes.rows.some(dn => dn.line_items?.length > 0)
-      }
-    });
-
-  } catch (error) {
-    logWithApplicationInsights('ERR', `Error fetching adjustment history: ${error.message}`, requestId);
-    res.status(500).json({ error: 'Failed to fetch adjustment history' });
-  }
-});
-
-// Products CRUD API - Complete product management for companies
-app.get('/api/products', async (req, res) => {
-  const requestId = generateRequestId();
-  const { companyId } = req.query;
-  
-  logWithApplicationInsights('INFO', `Fetching products for company ${companyId}`, requestId);
-  
-  try {
-    let query = 'SELECT * FROM products';
-    let params = [];
-    
-    if (companyId) {
-      query += ' WHERE company_id = $1';
-      params = [companyId];
-    }
-    
-    query += ' ORDER BY created_at DESC';
-    
-    const result = await pool.query(query, params);
-    
-    logWithApplicationInsights('INFO', `Found ${result.rows.length} products`, requestId);
-    res.json(result.rows);
-  } catch (error) {
-    logWithApplicationInsights('ERR', `Error fetching products: ${error.message}`, requestId);
-    res.status(500).json({ error: 'Failed to fetch products' });
-  }
-});
-
-// Get single product by ID
-app.get('/api/products/:id', async (req, res) => {
-  const requestId = generateRequestId();
-  const { id } = req.params;
-  
-  logWithApplicationInsights('INFO', `Fetching product ${id}`, requestId);
-  
-  try {
-    const result = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-    
-    logWithApplicationInsights('INFO', `Product ${id} found`, requestId);
-    res.json(result.rows[0]);
-  } catch (error) {
-    logWithApplicationInsights('ERR', `Error fetching product ${id}: ${error.message}`, requestId);
-    res.status(500).json({ error: 'Failed to fetch product' });
-  }
-});
-
-// Create new product
-app.post('/api/products', async (req, res) => {
-  const requestId = generateRequestId();
-  const { 
-    name, 
-    description, 
-    sku, 
-    sales_price, 
-    purchase_price, 
-    category, 
-    company_id, 
-    unit_of_measure,
-    stock_quantity,
-    reorder_level,
-    status = 'active'
-  } = req.body;
-  
-  logWithApplicationInsights('INFO', `Creating new product: ${name}`, requestId);
-  
-  try {
-    if (!name || !company_id) {
-      return res.status(400).json({ error: 'Product name and company_id are required' });
-    }
-
-    // Check if company exists
-    const companyCheck = await pool.query('SELECT id FROM companies WHERE id = $1', [company_id]);
-    if (companyCheck.rows.length === 0) {
-      return res.status(400).json({ error: 'Company not found' });
-    }
-
-    // Check for duplicate SKU within company
-    if (sku) {
-      const skuCheck = await pool.query(
-        'SELECT id FROM products WHERE sku = $1 AND company_id = $2', 
-        [sku, company_id]
-      );
-      if (skuCheck.rows.length > 0) {
-        return res.status(400).json({ error: 'SKU already exists for this company' });
-      }
-    }
-
-    const result = await pool.query(`
-      INSERT INTO products (
-        name, description, sku, sales_price, purchase_price, 
-        category, company_id, unit_of_measure, stock_quantity, 
-        reorder_level, status, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
-      RETURNING *
-    `, [
-      name, 
-      description || null, 
-      sku || null, 
-      sales_price || 0, 
-      purchase_price || 0, 
-      category || null, 
-      company_id, 
-      unit_of_measure || 'ea', 
-      stock_quantity || 0, 
-      reorder_level || 0, 
-      status
-    ]);
-
-    logWithApplicationInsights('INFO', `Product created successfully: ${result.rows[0].id}`, requestId);
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    logWithApplicationInsights('ERR', `Error creating product: ${error.message}`, requestId);
-    res.status(500).json({ error: 'Failed to create product' });
-  }
-});
-
-// Update existing product
-app.put('/api/products/:id', async (req, res) => {
-  const requestId = generateRequestId();
-  const { id } = req.params;
-  const { 
-    name, 
-    description, 
-    sku, 
-    sales_price, 
-    purchase_price, 
-    category, 
-    unit_of_measure,
-    stock_quantity,
-    reorder_level,
-    status
-  } = req.body;
-  
-  logWithApplicationInsights('INFO', `Updating product ${id}`, requestId);
-  
-  try {
-    // Check if product exists
-    const existingProduct = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
-    if (existingProduct.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    const currentProduct = existingProduct.rows[0];
-
-    // Check for duplicate SKU within company (if SKU is being changed)
-    if (sku && sku !== currentProduct.sku) {
-      const skuCheck = await pool.query(
-        'SELECT id FROM products WHERE sku = $1 AND company_id = $2 AND id != $3', 
-        [sku, currentProduct.company_id, id]
-      );
-      if (skuCheck.rows.length > 0) {
-        return res.status(400).json({ error: 'SKU already exists for this company' });
-      }
-    }
-
-    const result = await pool.query(`
-      UPDATE products SET 
-        name = COALESCE($1, name),
-        description = COALESCE($2, description),
-        sku = COALESCE($3, sku),
-        sales_price = COALESCE($4, sales_price),
-        purchase_price = COALESCE($5, purchase_price),
-        category = COALESCE($6, category),
-        unit_of_measure = COALESCE($7, unit_of_measure),
-        stock_quantity = COALESCE($8, stock_quantity),
-        reorder_level = COALESCE($9, reorder_level),
-        status = COALESCE($10, status),
-        updated_at = NOW()
-      WHERE id = $11
-      RETURNING *
-    `, [
-      name, 
-      description, 
-      sku, 
-      sales_price, 
-      purchase_price, 
-      category, 
-      unit_of_measure, 
-      stock_quantity, 
-      reorder_level, 
-      status, 
-      id
-    ]);
-
-    logWithApplicationInsights('INFO', `Product ${id} updated successfully`, requestId);
-    res.json(result.rows[0]);
-  } catch (error) {
-    logWithApplicationInsights('ERR', `Error updating product ${id}: ${error.message}`, requestId);
-    res.status(500).json({ error: 'Failed to update product' });
-  }
-});
-
-// Delete product (soft delete by setting status to inactive)
-app.delete('/api/products/:id', async (req, res) => {
-  const requestId = generateRequestId();
-  const { id } = req.params;
-  const { permanent = false } = req.query;
-  
-  logWithApplicationInsights('INFO', `Deleting product ${id} (permanent: ${permanent})`, requestId);
-  
-  try {
-    // Check if product exists
-    const existingProduct = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
-    if (existingProduct.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    // Check if product is used in any orders or transactions
-    const usageCheck = await pool.query(`
-      SELECT 1 FROM (
-        SELECT 1 FROM sales_order_line_items WHERE product_id = $1
-        UNION
-        SELECT 1 FROM purchase_order_line_items WHERE product_id = $1
-        UNION
-        SELECT 1 FROM credit_note_line_items WHERE product_id = $1
-        UNION
-        SELECT 1 FROM debit_note_line_items WHERE product_id = $1
-      ) AS usage
-      LIMIT 1
-    `, [id]);
-
-    if (usageCheck.rows.length > 0 && permanent === 'true') {
-      return res.status(400).json({ 
-        error: 'Cannot permanently delete product that has been used in transactions. Use soft delete instead.' 
-      });
-    }
-
-    let result;
-    if (permanent === 'true' && usageCheck.rows.length === 0) {
-      // Permanent delete (only if not used anywhere)
-      result = await pool.query('DELETE FROM products WHERE id = $1 RETURNING *', [id]);
-      logWithApplicationInsights('INFO', `Product ${id} permanently deleted`, requestId);
-    } else {
-      // Soft delete (set status to inactive)
-      result = await pool.query(`
-        UPDATE products SET 
-          status = 'inactive',
-          updated_at = NOW()
-        WHERE id = $1
-        RETURNING *
-      `, [id]);
-      logWithApplicationInsights('INFO', `Product ${id} soft deleted (status set to inactive)`, requestId);
-    }
-
-    res.json({ 
-      message: permanent === 'true' ? 'Product permanently deleted' : 'Product deactivated',
-      product: result.rows[0]
-    });
-  } catch (error) {
-    logWithApplicationInsights('ERR', `Error deleting product ${id}: ${error.message}`, requestId);
-    res.status(500).json({ error: 'Failed to delete product' });
-  }
-});
-
-// Get products by category
-app.get('/api/products/category/:category', async (req, res) => {
-  const requestId = generateRequestId();
-  const { category } = req.params;
-  const { companyId } = req.query;
-  
-  logWithApplicationInsights('INFO', `Fetching products by category: ${category}`, requestId);
-  
-  try {
-    let query = 'SELECT * FROM products WHERE category = $1';
-    let params = [category];
-    
-    if (companyId) {
-      query += ' AND company_id = $2';
-      params.push(companyId);
-    }
-    
-    query += ' ORDER BY name ASC';
-    
-    const result = await pool.query(query, params);
-    
-    logWithApplicationInsights('INFO', `Found ${result.rows.length} products in category ${category}`, requestId);
-    res.json(result.rows);
-  } catch (error) {
-    logWithApplicationInsights('ERR', `Error fetching products by category: ${error.message}`, requestId);
-    res.status(500).json({ error: 'Failed to fetch products by category' });
-  }
-});
-
-// Search products by name or SKU
-app.get('/api/products/search/:query', async (req, res) => {
-  const requestId = generateRequestId();
-  const { query } = req.params;
-  const { companyId } = req.query;
-  
-  logWithApplicationInsights('INFO', `Searching products with query: ${query}`, requestId);
-  
-  try {
-    let searchQuery = `
-      SELECT * FROM products 
-      WHERE (name ILIKE $1 OR sku ILIKE $1 OR description ILIKE $1)
-    `;
-    let params = [`%${query}%`];
-    
-    if (companyId) {
-      searchQuery += ' AND company_id = $2';
-      params.push(companyId);
-    }
-    
-    searchQuery += ' ORDER BY name ASC LIMIT 50';
-    
-    const result = await pool.query(searchQuery, params);
-    
-    logWithApplicationInsights('INFO', `Found ${result.rows.length} products matching search`, requestId);
-    res.json(result.rows);
-  } catch (error) {
-    logWithApplicationInsights('ERR', `Error searching products: ${error.message}`, requestId);
-    res.status(500).json({ error: 'Failed to search products' });
-  }
-});
-
-// Get low stock products (below reorder level)
-app.get('/api/products/low-stock', async (req, res) => {
-  const requestId = generateRequestId();
-  const { companyId } = req.query;
-  
-  logWithApplicationInsights('INFO', `Fetching low stock products`, requestId);
-  
-  try {
-    let query = `
-      SELECT * FROM products 
-      WHERE stock_quantity <= reorder_level 
-      AND status = 'active'
-    `;
-    let params = [];
-    
-    if (companyId) {
-      query += ' AND company_id = $1';
-      params.push(companyId);
-    }
-    
-    query += ' ORDER BY stock_quantity ASC';
-    
-    const result = await pool.query(query, params);
-    
-    logWithApplicationInsights('INFO', `Found ${result.rows.length} low stock products`, requestId);
-    res.json(result.rows);
-  } catch (error) {
-    logWithApplicationInsights('ERR', `Error fetching low stock products: ${error.message}`, requestId);
-    res.status(500).json({ error: 'Failed to fetch low stock products' });
   }
 });
 

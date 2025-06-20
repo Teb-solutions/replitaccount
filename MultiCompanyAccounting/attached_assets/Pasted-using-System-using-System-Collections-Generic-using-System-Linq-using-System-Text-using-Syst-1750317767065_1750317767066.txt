@@ -1,0 +1,99 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace PulzConnect.Application.Models.ReplitAccountModels
+{
+    public class SalesOrderWorkflow
+    {
+        public int TotalSalesOrders { get; set; }
+        public decimal TotalSalesOrderAmount { get; set; }
+        public int TotalSalesInvoices { get; set; }
+        public decimal TotalSalesInvoiceAmount { get; set; }
+        public int TotalSalesReceipts { get; set; }
+        public decimal TotalSalesReceiptAmount { get; set; }
+        public decimal OutstandingReceivables { get; set; }
+    }
+
+    public class Customer
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public string Type { get; set; }
+    }
+
+    public class InvoiceSummary
+    {
+        public int Count { get; set; }
+        public decimal TotalAmount { get; set; }
+    }
+
+    public class ReceiptSummary
+    {
+        public int Count { get; set; }
+        public decimal TotalAmount { get; set; }
+    }
+
+    public class SalesOrderDetail
+    {
+        public int SalesOrderId { get; set; }
+        public string OrderNumber { get; set; }
+        public string ReferenceNumber { get; set; }
+        public DateTime OrderDate { get; set; }
+        public string Status { get; set; }
+        public decimal SalesOrderTotal { get; set; }
+        public Customer Customer { get; set; }
+        public InvoiceSummary Invoices { get; set; }
+        public ReceiptSummary Receipts { get; set; }
+        public decimal OutstandingAmount { get; set; }
+        public string WorkflowStatus { get; set; }
+    }
+
+    public class WorkflowStatistics
+    {
+        public int SalesOrdersWithInvoices { get; set; }
+        public int SalesOrdersWithoutInvoices { get; set; }
+        public int InvoicesWithReceipts { get; set; }
+        public int InvoicesWithoutReceipts { get; set; }
+        public int IntercompanySalesOrders { get; set; }
+        public int ExternalSalesOrders { get; set; }
+    }
+
+    public class SalesSummary
+    {
+        public int Count { get; set; }
+        public decimal Total { get; set; }
+    }
+
+    public class CustomerBreakdown
+    {
+        public string CustomerName { get; set; }
+        public int CustomerId { get; set; }
+        public string RelationshipType { get; set; }
+        public SalesSummary SalesOrders { get; set; }
+        public SalesSummary Invoices { get; set; }
+        public SalesSummary Receipts { get; set; }
+    }
+
+    public class SalesData
+    {
+        public SalesOrderWorkflow SalesOrderWorkflow { get; set; }
+        public List<SalesOrderDetail> SalesOrderDetails { get; set; }
+        public WorkflowStatistics WorkflowStatistics { get; set; }
+        public int TotalSalesOrders { get; set; }
+        public decimal SalesOrdersTotal { get; set; }
+        public int IntercompanySalesOrders { get; set; }
+        public int ExternalSalesOrders { get; set; }
+        public int TotalInvoices { get; set; }
+        public decimal InvoicesTotal { get; set; }
+        public int InvoicesFromSalesOrders { get; set; }
+        public int TotalReceipts { get; set; }
+        public decimal ReceiptsTotal { get; set; }
+        public int ReceiptsLinkedToInvoices { get; set; }
+        public decimal OutstandingReceivables { get; set; }
+        public List<CustomerBreakdown> CustomerBreakdown { get; set; }
+    }
+
+}
