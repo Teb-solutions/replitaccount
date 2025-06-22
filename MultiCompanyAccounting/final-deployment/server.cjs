@@ -1847,8 +1847,10 @@ app.post('/api/setup-database', async (req, res) => {
         credit_note_number VARCHAR(50) UNIQUE NOT NULL,
         company_id INTEGER NOT NULL,
         customer_id INTEGER NOT NULL,
+		invoice_id INTEGER,
         amount DECIMAL(15,2) NOT NULL,
         reason TEXT,
+		reference_number VARCHAR(50),
         credit_note_date DATE NOT NULL,
         status VARCHAR(20) DEFAULT 'active',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1864,8 +1866,10 @@ app.post('/api/setup-database', async (req, res) => {
         debit_note_number VARCHAR(50) UNIQUE NOT NULL,
         company_id INTEGER NOT NULL,
         vendor_id INTEGER NOT NULL,
+		bill_id INTEGER,
         amount DECIMAL(15,2) NOT NULL,
         reason TEXT,
+		reference_number VARCHAR(50),
         debit_note_date DATE NOT NULL,
         status VARCHAR(20) DEFAULT 'active',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1942,7 +1946,8 @@ app.post('/api/setup-database', async (req, res) => {
 
 // Intercompany Adjustment API - uses reference numbers to create balancing credit/debit notes
 app.post('/api/intercompany/adjustment', async (req, res) => {
-  const requestId = generateRequestId();
+  //const requestId = generateRequestId();
+  const requestId = `setup-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   logWithApplicationInsights('INFO', `Starting intercompany adjustment`, requestId);
   
   try {
@@ -1956,7 +1961,7 @@ app.post('/api/intercompany/adjustment', async (req, res) => {
 
     // Find sales order and related invoice using reference number
     const salesOrderQuery = await pool.query(`
-      SELECT so.*, i.id as invoice_id, i.invoice_number, i.total_amount as invoice_amount,
+      SELECT so.*, i.id as invoice_id, i.invoice_number, i.total as invoice_amount,
              c1.name as company_name, c2.name as customer_name
       FROM sales_orders so
       LEFT JOIN invoices i ON so.id = i.sales_order_id
@@ -1969,7 +1974,7 @@ app.post('/api/intercompany/adjustment', async (req, res) => {
 
     // Find purchase order and related bill using reference number
     const purchaseOrderQuery = await pool.query(`
-      SELECT po.*, b.id as bill_id, b.bill_number, b.total_amount as bill_amount,
+      SELECT po.*, b.id as bill_id, b.bill_number, b.total as bill_amount,
              c1.name as company_name, c2.name as vendor_name
       FROM purchase_orders po
       LEFT JOIN bills b ON po.id = b.purchase_order_id
@@ -1999,7 +2004,7 @@ app.post('/api/intercompany/adjustment', async (req, res) => {
       const creditNoteResult = await pool.query(`
         INSERT INTO credit_notes (
           credit_note_number, company_id, customer_id, invoice_id,
-          total_amount, credit_note_date, status, reason, reference_number
+          amount, credit_note_date, status, reason, reference_number
         ) VALUES ($1, $2, $3, $4, $5, $6, 'processed', $7, $8)
         RETURNING *
       `, [
@@ -2034,7 +2039,7 @@ app.post('/api/intercompany/adjustment', async (req, res) => {
 
         // Get sales order line items to append products
         const salesOrderLines = await pool.query(`
-          SELECT * FROM sales_order_line_items WHERE sales_order_id = $1
+          SELECT * FROM sales_order_items WHERE sales_order_id = $1
         `, [salesOrder.id]);
 
         logWithApplicationInsights('INFO', `Added ${products.length} product line items to credit note and sales order`, requestId);
@@ -2062,7 +2067,7 @@ app.post('/api/intercompany/adjustment', async (req, res) => {
       const debitNoteResult = await pool.query(`
         INSERT INTO debit_notes (
           debit_note_number, company_id, vendor_id, bill_id,
-          total_amount, debit_note_date, status, reason, reference_number
+          amount,debit_note_date, status, reason, reference_number
         ) VALUES ($1, $2, $3, $4, $5, $6, 'processed', $7, $8)
         RETURNING *
       `, [
@@ -2262,7 +2267,8 @@ app.get('/api/products', async (req, res) => {
 
 // Get single product by ID
 app.get('/api/products/:id', async (req, res) => {
-  const requestId = generateRequestId();
+  //const requestId = generateRequestId();
+   const requestId = `setup-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const { id } = req.params;
   
   logWithApplicationInsights('INFO', `Fetching product ${id}`, requestId);
@@ -2284,7 +2290,8 @@ app.get('/api/products/:id', async (req, res) => {
 
 // Create new product
 app.post('/api/products', async (req, res) => {
-  const requestId = generateRequestId();
+  //const requestId = generateRequestId();
+  const requestId = `setup-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const { 
     name, 
     description, 
