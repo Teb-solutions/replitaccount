@@ -1179,7 +1179,7 @@ app.get('/api/invoices/summary', async (req, res) => {
         COUNT(DISTINCT CASE WHEN r.invoice_id IS NOT NULL THEN r.id END) as receipts_linked_to_invoices,
         
         -- Credit notes impact
-        COALESCE(SUM(DISTINCT cn.total), 0) as credit_notes_total
+        COALESCE(SUM(DISTINCT cn.amount), 0) as credit_notes_total
         
       FROM sales_orders so
       LEFT JOIN invoices i ON so.id = i.sales_order_id
@@ -1202,6 +1202,11 @@ app.get('/api/invoices/summary', async (req, res) => {
         cust.name as "CustomerName",
         COALESCE(COUNT(soli.id), 0) as "ProductCount",
         COALESCE(SUM(soli.quantity), 0) as "TotalQuantity",
+		COUNT(DISTINCT i.id) as invoice_count,
+        COALESCE(SUM(DISTINCT i.total), 0) as invoices_total,
+        COUNT(DISTINCT r.id) as receipt_count,
+        COALESCE(SUM(DISTINCT r.amount), 0) as receipts_total,
+
         CASE WHEN i.id IS NOT NULL THEN true ELSE false END as "HasInvoice",
         i.invoice_number as "InvoiceNumber",
         i.total as "InvoiceAmount"
@@ -1209,6 +1214,8 @@ app.get('/api/invoices/summary', async (req, res) => {
       LEFT JOIN companies cust ON so.customer_id = cust.id
       LEFT JOIN sales_order_items soli ON so.id = soli.sales_order_id
       LEFT JOIN invoices i ON so.id = i.sales_order_id
+	  LEFT JOIN receipts r ON i.id = r.invoice_id
+
       WHERE so.company_id = $1
       GROUP BY so.id, so.order_number, so.reference_number, so.order_date, 
                so.expected_date, so.total, so.status, cust.name, i.id, 
@@ -1293,6 +1300,19 @@ app.get('/api/invoices/summary', async (req, res) => {
         TotalQuantity: parseInt(detail.TotalQuantity) || 0,
         HasInvoice: detail.HasInvoice,
         InvoiceNumber: detail.InvoiceNumber,
+		invoices: {
+          count: parseInt(detail.invoice_count),
+          totalAmount: parseFloat(detail.invoices_total).toFixed(2)
+        },
+        receipts: {
+          count: parseInt(detail.receipt_count),
+          totalAmount: parseFloat(detail.receipts_total).toFixed(2)
+        },
+		 customer: {
+          id: detail.customer_id,
+          name: detail.customer_name || 'External Customer',
+          type: detail.customer_id ? 'Intercompany' : 'External'
+        },
         InvoiceAmount: parseFloat(detail.InvoiceAmount) || 0
       })),
       WorkflowStatistics: {
@@ -1370,7 +1390,7 @@ app.get('/api/bills/summary', async (req, res) => {
         COALESCE(SUM(DISTINCT p.amount), 0) as total_paid,
         COALESCE(SUM(DISTINCT CASE WHEN b.id IS NOT NULL AND p.id IS NULL THEN b.total ELSE 0 END), 0) as pending_bill_value,
         COALESCE(SUM(DISTINCT CASE WHEN b.id IS NOT NULL THEN b.total ELSE 0 END) - SUM(DISTINCT CASE WHEN p.id IS NOT NULL THEN p.amount ELSE 0 END), 0) as pending_payment_value,
-        COALESCE(SUM(DISTINCT dn.total), 0) as debit_notes_total
+        COALESCE(SUM(DISTINCT dn.amount), 0) as debit_notes_total
       FROM purchase_orders po
       LEFT JOIN bills b ON po.id = b.purchase_order_id
       LEFT JOIN bill_payments p ON b.id = p.bill_id
